@@ -6,6 +6,7 @@
 #include <vector>
 #include <sstream>
 #include <filesystem>
+#include <fstream>
 
 std::string shutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset"};
 struct {
@@ -42,14 +43,6 @@ bool isbuiltin(std::string file)
 	return false;
 }
 
-std::string parse(std::string __command)
-{
-	std::string result = __command;
-	// will code here
-	// will be POSIX-compliant
-	return result;
-}
-
 std::string foundexe(std::string file)
 {
 	std::string path = "PATH";
@@ -69,132 +62,198 @@ std::string foundexe(std::string file)
 	return "I found something";
 }
 
-int shell(std::string readline)
+int shellcmd(const std::vector<std::string>& tokens)
 {
-	if (readline.rfind("exit")==0)
+	if (tokens[0]=="unalias") {
+		std::cerr << "Unavailable.\n";
 		return 1;
+	}
 
-	if (readline=="cd") {
+	if (tokens[0]=="cd") {
+		if (tokens.size()<2) {
 		int opcode = (chdir(shellenv.home.c_str())==0) ? 0 : 2;
 		if (opcode==2) std::cerr << "You're homeless.\n";
 		return opcode;
-	}
-
-	if (readline.rfind("cd ", 0)==0) { // found whole "cd " at index 0
-		std::string where = readline.substr(3);
-		int opcode = (chdir(where.c_str())==0) ? 0 : 3;
-		if (opcode==3) std::cerr << "Directory not found.\n";
-		return opcode;
-	}
-
-	if (readline.rfind("help", 0)==0) {
-		std::cout << "No manual available. Worse yet, you're asking me something.\n";
-		return 0;	
-	}
-
-	if (readline=="pwd") {
-		char currworkdir[2048]; // very generous
-		if (getcwd(currworkdir, 2048)) {
-			std::cout << currworkdir << '\n';
-			return 0;
 		} else {
-			std::cerr << "Current directory may not exist anymore.\n";
+			std::string where = tokens[1];
+			if (tokens.size()>2) std::cerr << "2 or more directories are specified, ignored\n";
+			int opcode = (chdir(where.c_str())==0) ? 0 : 3;
+			if (opcode==3) std::cerr << "Directory not found.\n";
+			return opcode;
+		}
+	}
+
+	if (tokens[0]=="help") { // will include help on a specific subject using second parameter
+		std::cout << "Will be here!\n";
+		return 0;
+	}
+
+	if (tokens[0]=="pwd") {
+		try {
+			std::string cwd = std::filesystem::current_path().string();
+			std::cout << cwd << '\n';
+			return 0;
+		} catch (...) {
+			std::cerr << "Current directory may not exist anymore, or is inaccessible.\n";
 			return 4;
 		}
 	} // I've only implemented pwd because I was lazy
 
-	if (readline.rfind("exec ", 0)==0) {
-		std::string fetch = readline.substr(5);
-
-		std::vector<std::string> tokens;
-		std::stringstream ss(fetch); // food order list
-		std::string val; // temporary buffer
-		while (ss >> val)
-			tokens.push_back(val);
-
-		std::vector<char*> argv; // store pointers to arguments
-		for (std::string &have : tokens)
-			argv.push_back(&have[0]); // grab pointer of argument
-		argv.push_back(nullptr); // a terminator
-
-		execvp(argv[0], argv.data()); // file and full command
-	}
-
-	if (readline.rfind("type ", 0)==0) {
-		std::string fetch = readline.substr(5);
-
-		if (shellenv.alias.find(fetch)!=shellenv.alias.end()) {
-			std::cout << fetch << " is an alias.\n";
+	if (tokens[0]=="exec")
+		if (tokens.size()<2) {
+			std::cout << "Specify a command.\n";
 			return 0;
 		}
+		else {
+			std::vector<std::string> __commandvec;
+			for (size_t i=1; i<tokens.size(); i++)
+				__commandvec.push_back(tokens[i]);
 
-		if (isbuiltin(fetch)) {
-			std::cout << fetch << " is a built-in shell command.\n";
-			return 0;
+			std::vector<char*> argv; // store pointers to arguments
+			for (std::string &have : __commandvec)
+				argv.push_back(&have[0]); // grab pointer of argument
+			argv.push_back(nullptr); // a terminator
+
+			execvp(argv[0], argv.data()); // file and full command
 		}
 
-		std::string found = foundexe(fetch);
-		if (found!="I found something") {
-			std::cout << fetch << " is an executable in " << found << '\n';
+	if (tokens[0]=="type")
+		if (tokens.size()<2) {
+			std::cout << "To query what?\n";
 			return 0;
 		}
+		else
+		{
+			if (tokens.size()>2) std::cerr << "Probably too much parameters, ignoring\n";
+			std::string fetch = tokens[1];
+	
+			if (shellenv.alias.find(fetch)!=shellenv.alias.end()) {
+				std::cout << fetch << " is an alias.\n";
+				return 0;
+			}
+	
+			if (isbuiltin(fetch)) {
+				std::cout << fetch << " is a built-in shell command.\n";
+				return 0;
+			}
 
-		std::cout << fetch << " doesn't exist anywhere.\n";
-		return 5;
-	}
+			std::string found = foundexe(fetch);
+			if (found!="I found something") {
+				std::cout << fetch << " is an executable in " << found << '\n';
+				return 0;
+			}
 
-	if (readline.rfind("export ", 0)==0) {
-		std::string expression = readline.substr(7);
-
-		size_t delimiter = expression.find("=");
-		if (delimiter==std::string::npos) { // not found
-			const char* var = std::getenv(expression.c_str());
-			if (var!=nullptr) std::cout << expression << "=" << var << '\n';
-			else std::cout << expression << "=\n";
-			return 0;
+			std::cout << fetch << " doesn't exist anywhere.\n";
+			return 5;
 		}
 
-		std::string name = expression.substr(0, delimiter);
-		std::string val = expression.substr(delimiter+1);
+	if (tokens[0]=="export" || tokens[0]=="env")
+		if (tokens.size()<2) {
+			extern char** environ;
+			for (int i=0; environ[i]!=nullptr; i++)
+				std::cout << environ[i] << '\n';
+			return 0;
+		}
+		else if (tokens[0]=="export") {
+			if (tokens.size()>2) std::cerr << "Too greedy, ignoring later assignments\n";
+			std::string expression = tokens[1];
 
-		// force overwrite
-		int opcode = setenv(name.c_str(), val.c_str(), 1);
-		if (opcode!=0) std::cerr << "Cannot set environment table with error code " << opcode << ".\n";
-		else return 0;
-		return 6;
-	}
+			size_t delimiter = expression.find("=");
+			if (delimiter==std::string::npos) { // not found
+				const char* var = std::getenv(expression.c_str());
+				if (var!=nullptr) std::cout << expression << "=" << var << '\n';
+				else std::cout << expression << "=\n";
+				return 0;
+			}
 
-	if (readline=="") {
-		std::cerr << "Did nothing because you gave me nothing.\n";
+			std::string name = expression.substr(0, delimiter);
+			std::string val = expression.substr(delimiter+1);
+
+			// force overwrite
+			int opcode = setenv(name.c_str(), val.c_str(), 1);
+			if (opcode!=0) std::cerr << "Cannot set environment table with error code " << opcode << ".\n";
+			else return 0;
+			return 6;
+		} else {
+			// wait so what function I'll use for this one
+		}
+
+	if (tokens[0]=="jobs") {
+		std::cerr << "Catastrophic error. Not really, though.\n";
 		return 7;
 	}
 
-	if (readline=="env" || readline=="export") {
-		extern char** environ;
-		for (int i=0; environ[i]!=nullptr; i++)
-			std::cout << environ[i] << '\n';
-		return 0;
-	}
+	if (tokens[0]=="unset")
+		if (tokens.size()<2) {
+			std::cout << "What?\n";
+			return 0;
+		} else {
+			if (tokens.size()>2) std::cerr << "Ignoring additional specifications\n";
+			std::string fetch = tokens[1];
+			if (unsetenv(fetch.c_str())!=0) {
+				std::cerr << "Fatal error encountered while removing a variable.\n";
+				return 8;
+			} else return 0;
+		}
 
-	if (readline.rfind("unset ", 0)==0) {
-		std::string fetch = readline.substr(6);
-		if (unsetenv(fetch.c_str())!=0) {
-			std::cerr << "Fatal error encountered while removing a variable.\n";
-			return 8;
-		} else return 0;
-	}
-
-	if (readline.rfind("alias ", 0)==0) {
+	if (tokens[0]=="alias") {
 		std::cerr << "Not available." << '\n';
 		return 9;
 	}
 
-	if (readline.rfind("unalias ", 0)==0) {
-		std::cerr << "This feature is behind a paywall. Please purchase to use it.\n";
-		return 10;
+	return -1;
+}
+
+int echoutil(std::string readline)
+{
+	return 0;
+}
+
+std::vector<std::string> parse(std::string readline)
+{
+	return {};
+}
+
+int cmdexec(const std::vector<std::string>& tokens)
+{
+	return system(tokens[0].c_str());
+}
+
+std::string expandDir(std::string dir)
+{
+	if (dir.empty()) return dir;
+	if (dir[0]=='~')
+		return shellenv.home + dir.substr(1);
+
+	return dir;
+}
+
+bool isScript(std::string readline)
+{
+	std::string filepath = expandDir(readline);
+
+	// doesn't exist or is a path
+	if (!std::filesystem::exists(filepath) || std::filesystem::is_directory(filepath))
+		return false;
+
+	std::ifstream file(filepath); // open file
+	if (file.is_open()) { // if it's actually open
+		std::string line1("");
+		if (!getline(file, line1))
+			if (line1.size()>2 // can be with shebang
+			&& line1[0] == '#' // check if it's actually a shebang
+			&& line1[1] == '!')
+			return true;
 	}
 
-	return -1;
+	// or check file extension
+	std::string extension("");
+	for (size_t i=filepath.size()-1; filepath[i]!='.' && i>=0; i--)
+		extension = filepath[i] + extension;
+	if (extension=="sh" || extension=="py")
+		return true;
+
+	return false;
 }
 
 int main()
@@ -206,17 +265,36 @@ int main()
 	while (true)
 	{
 		// commandline heading
-		std::cout << shellenv.user << "@" << shellenv.hostname << " >>> ";
-		if (lastexit!=0)
-			std::cout << "[" << lastexit << "]" << " ";
+		std::cout << shellenv.user << "@" << shellenv.hostname << " $ ";
+
+		std::string cwd("//");
+		try {
+			cwd = std::filesystem::current_path().string();
+		} catch (...) { (true || false); }
+		std::cout << cwd;
+
+		if (lastexit!=0) std::cout << " [" << lastexit << "]";
+		std::cout << " # ";
 
 		// stdin error
 		if (!std::getline(std::cin, readline)) return 1;
 
-		int opcode = shell(readline);
-		if (opcode==1) { lastexit = 0; break; }
-		else if (opcode<0) lastexit = system(readline.c_str());
-		else lastexit = opcode;
+		// handle input
+		if (readline=="exit") {
+			lastexit = 0;
+			break;
+		}// else if (isScript(readline)) {
+		//	lastexit = system(expandDir(readline).c_str()); }
+		else { lastexit = system(readline.c_str());
+		//	std::vector<std::string> tokens = parse(readline);
+		//	if (tokens.empty()) continue; // typed nothing
+		//	
+		//	int opcode = shellcmd(tokens);
+		//	if (tokens[0]!="echo")
+		//		lastexit = (opcode==-1) ? cmdexec(tokens) : opcode;
+		//	else
+		//		lastexit = echoutil(readline);
+		}
 	}
 
 	// print a newline before exiting
