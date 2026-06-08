@@ -225,7 +225,7 @@ int echoutil(std::vector<std::string> tokens)
 		std::cout << "Example help text\n";
 	else
 		for (size_t i=1; i<tokens.size(); i++)
-			std::cout << tokens[i];
+			std::cout << tokens[i] << " ";
 	std::cout << '\n';
 	return 0; // will do more stuff here
 }
