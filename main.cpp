@@ -29,11 +29,11 @@ void fetchenv()
 std::string errlookup(int opcode)
 {
 	if (!opcode)
-		return "Shell exited normally.";
+		return "";
 	else if (opcode==1)
-		return "Fatal input error.";
+		return "Fatal input error.\n";
 	else
-		return "Catastrophic error.";
+		return "Catastrophic error.\n";
 }
 
 bool isbuiltin(std::string file)
@@ -243,8 +243,8 @@ std::pair<std::string, bool> rtvarexp(std::string name) // runtime variable expa
 std::vector<std::string> parse(std::string readline)
 {
 	std::vector<std::string> tokens;
-	std::string qtbuff(""), keyword("");
-	uint16_t quotestate = 0; // quote buffer and state
+	std::string qtbuff(""); // quote buffer
+	uint16_t quotestate = 0; // quote state
 	
 	for (size_t i=0; i<readline.size(); i++)
 	{
@@ -253,35 +253,57 @@ std::vector<std::string> parse(std::string readline)
 		if (quotestate==0) {
 			if (fetch=='\"') quotestate=1;
 			else if (fetch=='\'') quotestate=2;
-			else if (fetch!=' ') keyword += fetch;
+			else if (fetch!=' ') qtbuff += fetch;
 			else {
-				tokens.push_back(keyword);
-				keyword.clear();
+				tokens.push_back(qtbuff);
+				qtbuff.clear();
 			}
 		} else
 
 		if (quotestate==1) {
-			if (fetch=='\"' || fetch==' ') {
-				if (keyword[0]=='$') {
-					std::pair<std::string, bool> retrieval = rtvarexp(keyword.substr(1));
-					if (retrieval.second) {
-						std::cerr << "Error expanding variable " << keyword << ".\n";
+			if (fetch=='\"') {
+				tokens.push_back(qtbuff);
+				quotestate = 0;
+			}
+			else if (fetch=='$') {
+				size_t where = i+1;
+				bool curlybraces = false;
+				if (readline[where]=='{') {
+					curlybraces = true;
+					where++;
+				}
+				
+				std::string getvariablename("");
+				while (readline[where]=='_' ||
+					(readline[where]>='0' && readline[where]<='9') ||
+					(readline[where]>='a' && readline[where]<='z') ||
+					(readline[where]>='A' && readline[where]<='Z') ) {
+					getvariablename += readline[where];
+					where++;
+				}
+
+				if (curlybraces) {
+					if (readline[where]!='}') {
+						std::cerr << "Imcomplete syntax. A curly brace is what you all needed to break a command like this.\n";
 						return {};
 					}
-					qtbuff += retrieval.first;
+					where++; // if it's correct syntax
 				}
-				else qtbuff += keyword;
 
-				if (fetch=='\"') {
-					quotestate=0;
-					tokens.push_back(qtbuff);
-					qtbuff.clear();
-				}	
-				else qtbuff += " ";
-
-				keyword.clear();
+				if (getvariablename=="")
+					qtbuff += readline[i];
+				else {
+					std::pair<std::string, bool> getresult = rtvarexp(getvariablename);
+					if (getresult.second) {
+						std::cerr << "Invalid variable name: " << getvariablename << '\n';
+						return {};
+					}
+					qtbuff += getresult.first;
+					i = where-1;
+				}
 			}
-			else keyword += fetch;
+			else
+				qtbuff += fetch;
 		} else
 
 		if (quotestate==2) {
@@ -297,8 +319,6 @@ std::vector<std::string> parse(std::string readline)
 			return {};
 		}
 	}
-	if (!keyword.empty())
-		tokens.push_back(keyword);
 	if (!qtbuff.empty() || quotestate!=0) {
 		std::cerr << "Imcomplete command.\n";
 		return {};
@@ -389,10 +409,10 @@ int main()
 		// commandline heading
 		std::cout << shellenv.user << "@" << shellenv.hostname << " $ ";
 
-		std::string cwd("//");
+		std::string cwd;
 		try {
 			cwd = std::filesystem::current_path().string();
-		} catch (...) { (true || false); }
+		} catch (...) { cwd = "//"; }
 		std::cout << cwd;
 
 		if (lastexit!=0) std::cout << " [" << lastexit << "]";
@@ -421,6 +441,6 @@ int main()
 
 	// print a newline before exiting
 	std::cout << "Shell exited with error code " << lastexit << ".\n";
-	std::cerr << errlookup(lastexit) << '\n';
+	std::cerr << errlookup(lastexit);
 	return 0;
 }
