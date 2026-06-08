@@ -48,6 +48,7 @@ std::string foundexe(std::string file)
 {
 	std::string path = "PATH";
 	const char* fetchpath = std::getenv(path.c_str());
+	if (fetchpath==nullptr) return "I found something";
 
 	std::stringstream ss(fetchpath);
 	std::string tmp;
@@ -255,8 +256,10 @@ std::vector<std::string> parse(std::string readline)
 			else if (fetch=='\'') quotestate=2;
 			else if (fetch!=' ') qtbuff += fetch;
 			else {
-				tokens.push_back(qtbuff);
-				qtbuff.clear();
+				if (!qtbuff.empty()) {
+					tokens.push_back(qtbuff);
+					qtbuff.clear();
+				}
 			}
 		} else
 
@@ -310,6 +313,7 @@ std::vector<std::string> parse(std::string readline)
 			if (fetch=='\'') {
 				tokens.push_back(qtbuff);
 				qtbuff.clear();
+				quotestate = 0;
 			}
 			else qtbuff += fetch;
 		} else
