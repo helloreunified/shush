@@ -1,8 +1,6 @@
 # Segmentated Hirachically Untitled Shell
 Welcome to shush! This is a terminal shell primarily oriented to portability and simple customization.
-Currently doesn't support parsing on its own.
-Currently doesn't support customization.
-When this is completed, this will not support scripting. Bash and any more shells already supported it, and this is just a hobby project plus an interface for those jobs so you won't expect it.
+Currently doesn't support customization and/or mature POSIX parsing (it's under the way! wait!)
+When this is completed, this will not support scripting, jobs control nor redirectors like `if`, `else`, `while`,...
 (When a script is detected, it will attempt to pick from bash, zsh or sh.)
-Image currently not included.
-Messy code is normal here, I'm trying to keep it as organized as possible.
+Potentially cancerous code.
