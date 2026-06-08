@@ -319,10 +319,13 @@ std::vector<std::string> parse(std::string readline)
 			return {};
 		}
 	}
-	if (!qtbuff.empty() || quotestate!=0) {
-		std::cerr << "Imcomplete command.\n";
+	if (!qtbuff.empty())
+		tokens.push_back(qtbuff);
+	
+	if (quotestate!=0) {
+		std::cerr << "Imcomplete command due to unmatched quote.\n";
 		return {};
-	};
+	}
 	
 	return tokens;
 }
