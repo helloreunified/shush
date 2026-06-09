@@ -251,6 +251,9 @@ std::vector<std::string> parse(std::string readline)
 	{
 		char fetch = readline[i];
 
+		if (fetch=='#' && quotestate==0)
+			break;
+
 		if (quotestate==0) {
 			if (fetch=='\"') quotestate=1;
 			else if (fetch=='\'') quotestate=2;
