@@ -15,6 +15,41 @@ struct {
 	std::unordered_map<std::string, std::string> aliastable;
 } shellenv; // contain shell-specific environment tables
 
+void loadalias()
+{
+	std::filesystem::path where = std::filesystem::path(shellenv.home) / ".shushcfg" / "alias.shush";
+	std::ifstream file(where.string());
+	if (file.is_open()) {
+		std::string buffer;
+		while (getline(file, buffer)) {
+			size_t delimiter = buffer.find("=");
+			if (delimiter==std::string::npos)
+				std::cerr << "Malformed alias found. Will not include it.\n";
+			else {
+				std::string name = buffer.substr(0, delimiter);
+				std::string val = buffer.substr(delimiter+1);
+				shellenv.aliastable[name] = val;
+			}
+		}
+		file.close();
+	} else
+		std::cerr << "Alias table file not found. All alias were not loaded.\n";
+}
+
+bool writealias()
+{
+	std::filesystem::path where = std::filesystem::path(shellenv.home) / ".shushcfg" / "alias.shush";
+	std::ofstream file(where.string());
+	if (file.is_open()) {
+		for (std::pair<std::string, std::string> getalias : shellenv.aliastable)
+			file << getalias.first << "=" << getalias.second << "\n";
+		file.close(); return true;
+	} else {
+		std::cerr << "Alias table file not found. All alias were not saved, please return to your terminal and exit again if you don't want it saved.\n";
+		return false;
+	}
+}
+
 void fetchenv()
 {
 	const char* homeptr = std::getenv("HOME");
@@ -398,6 +433,7 @@ bool isScript(std::string readline)
 			&& line1[0] == '#' // check if it's actually a shebang
 			&& line1[1] == '!')
 			return true;
+		file.close(); // cleanup
 	}
 
 	// or check file extension
@@ -408,9 +444,25 @@ bool isScript(std::string readline)
 	return false;
 }
 
+void prepcfg()
+{
+	std::filesystem::path cfgpath = std::filesystem::current_path() / ".shushcfg";
+
+	if (!(std::filesystem::exists(cfgpath) && std::filesystem::is_directory(cfgpath)))
+		cmdexec({"mkdir", cfgpath.string()});
+
+	std::filesystem::path txtcfg = cfgpath / "config.shush";
+	if (!(std::filesystem::exists(txtcfg) && !std::filesystem::is_directory(txtcfg)))
+		cmdexec({"touch", txtcfg.string()});
+
+	std::filesystem::path aliascfg = cfgpath / "alias.shush";
+		if (!(std::filesystem::exists(aliascfg) && !std::filesystem::is_directory(aliascfg)))
+			cmdexec({"touch", aliascfg.string()});
+}
+
 int main()
 {
-	fetchenv();
+	fetchenv(); loadalias();
 	std::string readline;
 	int lastexit = 0;
 
@@ -426,7 +478,7 @@ int main()
 		std::cout << cwd;
 
 		if (lastexit!=0) std::cout << " [" << lastexit << "]";
-		std::cout << " # ";
+		std::cout << " % ";
 
 		// stdin error
 		if (!std::getline(std::cin, readline)) return 1;
@@ -452,5 +504,8 @@ int main()
 	// print a newline before exiting
 	std::cout << "Shell exited with error code " << lastexit << ".\n";
 	std::cerr << errlookup(lastexit);
-	return 0;
+
+	if (!writealias()) { prepcfg(); writealias(); }
+	
+	return lastexit;
 }
