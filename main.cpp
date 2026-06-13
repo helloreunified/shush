@@ -30,6 +30,7 @@ SOFTWARE.
 #include <filesystem>
 #include <fstream>
 #include <sys/wait.h>
+#include "linenoise.h"
 
 std::string shutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset"};
 struct {
@@ -87,8 +88,6 @@ std::string errlookup(int opcode)
 {
 	if (!opcode)
 		return "";
-	else if (opcode==1)
-		return "Fatal input error.\n";
 	else
 		return "Catastrophic error.\n";
 }
@@ -285,7 +284,7 @@ int echoutil(std::vector<std::string> tokens)
 		for (size_t i=1; i<tokens.size(); i++)
 			std::cout << tokens[i] << " ";
 	std::cout << '\n';
-	return 0; // will do more stuff here
+	return 0; // Will reimplement GNU echo
 }
 
 std::pair<std::string, bool> rtvarexp(std::string name) // runtime variable expand
@@ -469,6 +468,7 @@ bool isScript(std::string readline)
 void prepcfg()
 {
 	std::filesystem::path cfgpath = std::filesystem::current_path() / ".shushcfg";
+	// as a portable shell, this leaves a very inherent reminder in that
 
 	if (!(std::filesystem::exists(cfgpath) && std::filesystem::is_directory(cfgpath)))
 		cmdexec({"mkdir", cfgpath.string()});
@@ -482,29 +482,71 @@ void prepcfg()
 			cmdexec({"touch", aliascfg.string()});
 }
 
+std::string readprompt(int lastexit) // this varies
+{
+	// predefine some necessity
+	std::filesystem::path txtcfg = std::filesystem::current_path() / ".shushcfg" / "config.shush";
+
+	std::string cwd; // current working directory
+	try { cwd = std::filesystem::current_path().string(); }
+	catch (...) { cwd = "//"; } // that's a quite nice catastrophe
+
+	bool foundpromptcfg = false;
+	std::stringstream ss(txtcfg);
+	std::string fetchcfg;
+	while (!getline(ss, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added self-brought config
+		if (fetchcfg.rfind("prompt=", 0)) {
+			fetchcfg = fetchcfg.substr(7);
+			foundpromptcfg = true; break;
+		}
+	
+
+	if (!(std::filesystem::exists(txtcfg) && !std::filesystem::is_directory(txtcfg))
+		|| !foundpromptcfg) {
+		std::cout << "A small warning that config.shush failed to create or found, or the specific configuration wasn't found.\n";
+
+		std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
+		if (lastexit!=0) exampleprompt += " [" + std::to_string(lastexit) + "]";
+		exampleprompt +=  " % "; return exampleprompt;
+	} else {
+		std::cout << "Note that any prompt over 512 characters in raw will be cut off in snapshot 5 or later snapshots of this shell.\n";
+		std::string userprompt("");
+		/* we need to define some things before we do things
+			{user} == username
+			{host} == hostname
+			{cwd} == current working directory
+			ASCII color sequence == color will be later!
+		*/
+
+		// will be here!
+		// i'm genuinely confused if we just do a single pass or a greedy replacement for the simpler
+		return userprompt;
+	}
+}
+
+bool prompter(int lastexit)
+{
+	char* opcode = linenoise(readprompt(lastexit).c_str());
+	return (opcode!=nullptr);
+}
+
 int main()
 {
-	fetchenv(); loadalias();
+	prepcfg(); fetchenv(); loadalias();
 	std::string readline;
 	int lastexit = 0;
 
 	while (true)
 	{
-		// commandline heading
-		std::cout << shellenv.user << "@" << shellenv.hostname << " $ ";
+		if (prompter(lastexit)==true) {
+			lastexit = 0;
+			break;
+		} else {
+			lastexit = 1;
+			break;
+		}
 
-		std::string cwd;
-		try {
-			cwd = std::filesystem::current_path().string();
-		} catch (...) { cwd = "//"; }
-		std::cout << cwd;
-
-		if (lastexit!=0) std::cout << " [" << lastexit << "]";
-		std::cout << " % ";
-
-		// stdin error
-		if (!std::getline(std::cin, readline)) return 1;
-
+		/*
 		// handle input
 		if (readline=="exit") {
 			lastexit = 0;
@@ -520,7 +562,7 @@ int main()
 				lastexit = (opcode==-1) ? cmdexec(tokens) : opcode;
 			else
 				lastexit = echoutil(tokens);
-		}
+		} */ // archived
 	}
 
 	// print a newline before exiting
