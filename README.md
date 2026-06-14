@@ -2,6 +2,6 @@
 Welcome to shush! This is a terminal shell primarily oriented to portability and simple customization.
 Currently doesn't support many customizations.
 When this is completed, this will not support scripting, jobs control nor redirectors like `if`, `else`, `while`,...
-(When a script is detected, it will attempt to pick from bash, zsh or sh.)
+(When a script is detected, it will use `system()` instead.)
 Potentially cancerous code.
-(Use `gcc -c linenoise.c -o linenoise.o && g++ main.cpp linenoise.o -o shush -std=c++17` to build)
+(Use `gcc -c linenoise.c -o linenoise.o && g++ main.cpp linenoise.o -o shush` to build and you may want to specifically use `-std=c++17` too)

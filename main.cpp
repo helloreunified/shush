@@ -32,7 +32,7 @@ SOFTWARE.
 #include <sys/wait.h>
 #include "linenoise.h"
 
-std::string shutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset"};
+std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset"};
 struct {
 	std::string home, user, hostname;
 	std::unordered_map<std::string, std::string> aliastable;
@@ -94,8 +94,8 @@ std::string errlookup(int opcode)
 
 bool isbuiltin(std::string file)
 {
-	for (long unsigned int i=0; i<size(shutils); i++)
-		if (file==shutils[i])
+	for (long unsigned int i=0; i<size(shellutils); i++)
+		if (file==shellutils[i])
 			return true;
 	return false;
 }
@@ -273,18 +273,17 @@ int shellcmd(const std::vector<std::string>& tokens)
 		shellenv.aliastable[name] = val;
 	}
 
-	return -1;
-}
+	if (tokens[0]=="echo") {
+		if (tokens.size()<2)
+			std::cout << "Example help text\n";
+		else
+			for (size_t i=1; i<tokens.size(); i++)
+				std::cout << tokens[i] << " ";
+		std::cout << '\n';
+		return 0; // Will reimplement GNU echo
+	}
 
-int echoutil(std::vector<std::string> tokens)
-{
-	if (tokens.size()<2)
-		std::cout << "Example help text\n";
-	else
-		for (size_t i=1; i<tokens.size(); i++)
-			std::cout << tokens[i] << " ";
-	std::cout << '\n';
-	return 0; // Will reimplement GNU echo
+	return -1;
 }
 
 std::pair<std::string, bool> rtvarexp(std::string name) // runtime variable expand
@@ -325,6 +324,7 @@ std::vector<std::string> parse(std::string readline)
 		if (quotestate==1) {
 			if (fetch=='\"') {
 				tokens.push_back(qtbuff);
+				qtbuff.clear();
 				quotestate = 0;
 			}
 			else if (fetch=='$') {
@@ -482,6 +482,7 @@ void prepcfg()
 			cmdexec({"touch", aliascfg.string()});
 }
 
+bool notify_no_prompt_once = false;
 std::string readprompt(int lastexit) // this varies
 {
 	// predefine some necessity
@@ -492,81 +493,81 @@ std::string readprompt(int lastexit) // this varies
 	catch (...) { cwd = "//"; } // that's a quite nice catastrophe
 
 	bool foundpromptcfg = false;
-	std::stringstream ss(txtcfg);
+	std::stringstream ss(txtcfg.string());
 	std::string fetchcfg;
-	while (!getline(ss, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added self-brought config
+	while (!getline(ss, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added fixed-size config at the end of the binary
 		if (fetchcfg.rfind("prompt=", 0)) {
 			fetchcfg = fetchcfg.substr(7);
 			foundpromptcfg = true; break;
 		}
 	
+	std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
+	if (lastexit!=0) exampleprompt += " [" + std::to_string(lastexit) + "]";
+	exampleprompt +=  " % ";
 
+	// return accordingly
 	if (!(std::filesystem::exists(txtcfg) && !std::filesystem::is_directory(txtcfg))
 		|| !foundpromptcfg) {
-		std::cout << "A small warning that config.shush failed to create or found, or the specific configuration wasn't found.\n";
-
-		std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
-		if (lastexit!=0) exampleprompt += " [" + std::to_string(lastexit) + "]";
-		exampleprompt +=  " % "; return exampleprompt;
+		if (!notify_no_prompt_once) {
+			std::cout << "A small warning that config.shush failed to create or found, or the specific configuration wasn't found.\n";
+			notify_no_prompt_once = true;
+		}
+		return exampleprompt;
 	} else {
 		std::cout << "Note that any prompt over 512 characters in raw will be cut off in snapshot 5 or later snapshots of this shell.\n";
-		std::string userprompt("");
+		std::string userprompt("miku > ");
 		/* we need to define some things before we do things
 			{user} == username
 			{host} == hostname
 			{cwd} == current working directory
 			ASCII color sequence == color will be later!
-		*/
-
-		// will be here!
-		// i'm genuinely confused if we just do a single pass or a greedy replacement for the simpler
+		and definitely use greedy replacement for this. */		
 		return userprompt;
 	}
 }
 
-bool prompter(int lastexit)
-{
-	char* opcode = linenoise(readprompt(lastexit).c_str());
-	return (opcode!=nullptr);
-}
-
 int main()
 {
-	prepcfg(); fetchenv(); loadalias();
-	std::string readline;
-	int lastexit = 0;
+	prepcfg(); fetchenv();
+	loadalias(); int lastexit = 0;
 
 	while (true)
 	{
-		if (prompter(lastexit)==true) {
+		// request defined prompt
+		std::string reqprompt = readprompt(lastexit);
+
+		// request reference to input
+		char* inputbuffer = linenoise(reqprompt.c_str());
+
+		// you used ^D
+		if (inputbuffer==nullptr) {
 			lastexit = 0;
-			break;
-		} else {
-			lastexit = 1;
 			break;
 		}
 
-		/*
+		// read input line
+		std::string readline = (std::string)inputbuffer;
+
 		// handle input
 		if (readline=="exit") {
 			lastexit = 0;
 			break;
-		} else if (isScript(readline)) {
-			lastexit = system(expandDir(readline).c_str()); }
-		else {
+		} else
+		if (isScript(readline)) {
+			lastexit = system(expandDir(readline).c_str());
+		} else
+		{
 			std::vector<std::string> tokens = parse(readline);
-			if (tokens.empty()) continue; // typed nothing
-			
-			int opcode = shellcmd(tokens);
-			if (tokens[0]!="echo")
-				lastexit = (opcode==-1) ? cmdexec(tokens) : opcode;
-			else
-				lastexit = echoutil(tokens);
-		} */ // archived
+			if (tokens.empty()) continue; // if you didn't type anything
+
+			// test against shell commands first then find executable later
+			int useshellcmd = shellcmd(tokens);
+			lastexit = (useshellcmd==-1) ? cmdexec(tokens) : useshellcmd;			
+		}
 	}
 
 	// print a newline before exiting
-	std::cout << "Shell exited with error code " << lastexit << ".\n";
+	std::cout << "Process exited with error code " << lastexit << ".\n";
 	std::cerr << errlookup(lastexit);
 
 	if (!writealias()) { prepcfg(); writealias(); }
