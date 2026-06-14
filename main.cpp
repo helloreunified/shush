@@ -547,6 +547,8 @@ int main()
 
 		// read input line
 		std::string readline = (std::string)inputbuffer;
+		// release memory
+		free(inputbuffer);
 
 		// handle input
 		if (readline=="exit") {
