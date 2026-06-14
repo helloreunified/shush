@@ -407,16 +407,15 @@ int cmdexec(const std::vector<std::string>& tokens)
 	if (!pid) {
 		execvp(argvect[0], argvect.data());
 
-		std::cerr << "Command not found. What did you expect from typing the executable wrong?\n";
+		std::cerr << "ouu shi 👀\n";
 		_exit(127);
 	}
 	else {
 		int status = 0;
 		pid_t waitcode = waitpid(pid, &status, 0);
-		// let's wait for the child, writing exit code to status and use default behavio
 
 		if (waitcode==-1) {
-			std::cerr << "I checked down there and there's no such child process.";
+			std::cerr << "fym ouu shi";
 			return -2;
 		}
 
@@ -531,7 +530,7 @@ std::string readprompt(int lastexit) // this varies
 		while ((posfind=userprompt.find("{cwd}"))!=std::string::npos)
 			userprompt.replace(posfind, 5, cwd);
 
-		// blue hair, blue tie, hiding in your wifi		
+		// later	
 
 		return userprompt;
 	}
