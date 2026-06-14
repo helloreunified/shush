@@ -267,6 +267,8 @@ int shellcmd(const std::vector<std::string>& tokens)
 		std::string val = tokens[1].substr(delimiter+1);
 
 		shellenv.aliastable[name] = val;
+
+		return 0;
 	}
 
 	if (tokens[0]=="echo") {
@@ -489,13 +491,15 @@ std::string readprompt(int lastexit) // this varies
 	catch (...) { cwd = "//"; } // that's a quite nice catastrophe
 
 	bool foundpromptcfg = false;
-	std::stringstream ss(txtcfg.string());
-	std::string fetchcfg;
-	while (!getline(ss, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added fixed-size config at the end of the binary
-		if (fetchcfg.rfind("prompt=", 0)) {
-			fetchcfg = fetchcfg.substr(7);
-			foundpromptcfg = true; break;
-		}
+	std::ifstream is(txtcfg.string());
+	if (is.is_open()) {
+		std::string fetchcfg;
+		while (!getline(is, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added fixed-size config at the end of the binary
+			if (fetchcfg.rfind("prompt=", 0)) {
+				fetchcfg = fetchcfg.substr(7);
+				foundpromptcfg = true; break;
+			}
+	}
 	
 	std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
 	if (lastexit!=0) exampleprompt += " [" + std::to_string(lastexit) + "]";
@@ -510,7 +514,7 @@ std::string readprompt(int lastexit) // this varies
 		}
 		return exampleprompt;
 	} else {
-		std::cout << "Note that any prompt over 2048 characters in raw will be cut off in snapshot 5 or later.\n";
+		std::cout << "Note that any prompt over 2048 characters in raw will be cut off in snapshot 6 or later.\n";
 		std::string userprompt("miku > ");
 		/* we need to define some things before we do things
 			{user} == username
@@ -565,7 +569,7 @@ int main()
 
 			// test against shell commands first then find executable later
 			int useshellcmd = shellcmd(tokens);
-			lastexit = (useshellcmd==-1) ? cmdexec(tokens) : useshellcmd;			
+			lastexit = (useshellcmd==-1) ? cmdexec(tokens) : useshellcmd;		
 		}
 	}
 
