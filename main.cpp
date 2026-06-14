@@ -123,11 +123,15 @@ std::string foundexe(std::string file)
 int shellcmd(const std::vector<std::string>& tokens)
 {
 	if (tokens[0]=="unalias") {
-		if (tokens[1].size()>2) std::cerr << "Why 2 or more parameters?\n";
-		if (!shellenv.aliastable.erase(tokens[1])) {
-			std::cerr << "Alias not found.\n";
+		if (tokens.size()>2) std::cerr << "Why 2 or more parameters?\n";
+		if (tokens.size()<2) {
+			std::cerr << "Not enough parameters, why?";
 			return 1;
 		}
+		
+		if (!shellenv.aliastable.erase(tokens[1]))
+			std::cerr << "Reminder that your specified alias isn't found.\n";
+			
 		return 0;
 	}
 
@@ -256,11 +260,15 @@ int shellcmd(const std::vector<std::string>& tokens)
 
 	if (tokens[0]=="alias") {
 		if (tokens.size()>2) std::cerr << "Ignoring unnecessary specifications.\n";
-
+		if (tokens.size()<2) {
+			std::cerr << "Not enough arguments.";
+			return 9;
+		}
+		
 		size_t delimiter = tokens[1].find("=");
 		if (delimiter==std::string::npos) {
-			std::cerr << "You're missing out on something!";
-			return 9;
+			std::cerr << "Where's your equal sign?";
+			return 10;
 		}
 
 		std::string name = tokens[1].substr(0, delimiter);
@@ -493,7 +501,7 @@ std::string readprompt(int lastexit) // this varies
 	std::ifstream is(txtcfg.string());
 	if (is.is_open()) {
 		std::string fetchcfg;
-		while (!getline(is, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added fixed-size config at the end of the binary
+		while (getline(is, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added fixed-size config at the end of the binary
 			if (fetchcfg.rfind("prompt=", 0)) {
 				fetchcfg = fetchcfg.substr(7);
 				foundpromptcfg = true; break;
@@ -502,7 +510,7 @@ std::string readprompt(int lastexit) // this varies
 	
 	std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
 	if (lastexit!=0) exampleprompt += " [" + std::to_string(lastexit) + "]";
-	exampleprompt +=  " % ";
+	exampleprompt += " % ";
 
 	// return accordingly
 	if (!(std::filesystem::exists(txtcfg) && !std::filesystem::is_directory(txtcfg))
