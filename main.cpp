@@ -521,7 +521,18 @@ std::string readprompt(int lastexit) // this varies
 			{host} == hostname
 			{cwd} == current working directory
 			ASCII color sequence == color will be later!
-		and definitely use greedy replacement for this. */		
+		*/
+
+		size_t posfind = 0;
+		while ((posfind=userprompt.find("{user}"))!=std::string::npos)		
+			userprompt.replace(posfind, 6, shellenv.user);
+		while ((posfind=userprompt.find("{host}"))!=std::string::npos)
+			userprompt.replace(posfind, 6, shellenv.hostname);
+		while ((posfind=userprompt.find("{cwd}"))!=std::string::npos)
+			userprompt.replace(posfind, 5, cwd);
+
+		// blue hair, blue tie, hiding in your wifi		
+
 		return userprompt;
 	}
 }
