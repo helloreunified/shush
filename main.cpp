@@ -237,13 +237,9 @@ int shellcmd(const std::vector<std::string>& tokens)
 			else return 0;
 			return 6;
 		} else {
-			// wait so what function I'll use for this one
+			std::cerr << "Unimplemented\n";
+			return 7;
 		}
-
-	if (tokens[0]=="jobs" || tokens[0]=="fg" || tokens[0]=="bg") {
-		std::cerr << "Catastrophic error. Not really, though.\n";
-		return 7;
-	}
 
 	if (tokens[0]=="unset")
 		if (tokens.size()<2) {
@@ -514,7 +510,7 @@ std::string readprompt(int lastexit) // this varies
 		}
 		return exampleprompt;
 	} else {
-		std::cout << "Note that any prompt over 512 characters in raw will be cut off in snapshot 5 or later snapshots of this shell.\n";
+		std::cout << "Note that any prompt over 2048 characters in raw will be cut off in snapshot 5 or later.\n";
 		std::string userprompt("miku > ");
 		/* we need to define some things before we do things
 			{user} == username
@@ -528,8 +524,9 @@ std::string readprompt(int lastexit) // this varies
 
 int main()
 {
-	prepcfg(); fetchenv();
-	loadalias(); int lastexit = 0;
+	prepcfg(); fetchenv(); loadalias();
+	int lastexit = 0;
+	linenoiseHistorySetMaxLen(20);
 
 	while (true)
 	{
@@ -551,6 +548,10 @@ int main()
 		free(inputbuffer);
 
 		// handle input
+		if (readline.empty()) continue; // noise pollution
+		linenoiseHistoryAdd(readline.c_str()); // add it
+
+		// resolve input
 		if (readline=="exit") {
 			lastexit = 0;
 			break;
