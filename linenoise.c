@@ -102,7 +102,6 @@
  *    Effect: clear the whole screen
  *
  */
- /* Modified by helloreunified in 2026. */
 
 #include <termios.h>
 #include <unistd.h>
