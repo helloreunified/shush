@@ -32,7 +32,7 @@ SOFTWARE.
 #include <sys/wait.h>
 #include "linenoise.h"
 
-std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset"};
+std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
 struct {
 	std::string home, user, hostname;
 	std::unordered_map<std::string, std::string> aliastable;
@@ -289,6 +289,11 @@ int shellcmd(const std::vector<std::string>& tokens)
 		return 0; // Will reimplement GNU echo
 	}
 
+	if (tokens[0]=="clear") {
+		std::cout << "\033[H\033[2J" << std::flush;
+		return 0;
+	}
+
 	return -1;
 }
 
@@ -415,7 +420,7 @@ int cmdexec(const std::vector<std::string>& tokens)
 	if (!pid) {
 		execvp(argvect[0], argvect.data());
 
-		std::cerr << "ouu shi 👀\n";
+		std::cerr << "Executable not found, maybe obviously.\n";
 		_exit(127);
 	}
 	else {
@@ -423,7 +428,7 @@ int cmdexec(const std::vector<std::string>& tokens)
 		pid_t waitcode = waitpid(pid, &status, 0);
 
 		if (waitcode==-1) {
-			std::cerr << "fym ouu shi";
+			std::cerr << "There's no such child process down there.\n";
 			return -2;
 		}
 
@@ -498,12 +503,13 @@ std::string readprompt(int lastexit) // this varies
 	catch (...) { cwd = "//"; } // that's a quite nice catastrophe
 
 	bool foundpromptcfg = false;
+	std::string userprompt;
 	std::ifstream is(txtcfg.string());
 	if (is.is_open()) {
 		std::string fetchcfg;
 		while (getline(is, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added fixed-size config at the end of the binary
-			if (fetchcfg.rfind("prompt=", 0)) {
-				fetchcfg = fetchcfg.substr(7);
+			if (fetchcfg.rfind("prompt=", 0)==0) {
+				userprompt = fetchcfg.substr(7);
 				foundpromptcfg = true; break;
 			}
 	}
@@ -521,13 +527,12 @@ std::string readprompt(int lastexit) // this varies
 		}
 		return exampleprompt;
 	} else {
-		std::cout << "Note that any prompt over 2048 characters in raw will be cut off in snapshot 6 or later.\n";
-		std::string userprompt("miku > ");
-		/* we need to define some things before we do things
+		std::cout << "Note that any prompt over 2048 characters in raw will be cut off in snapshot 6 or later.\n";	
+		/*
 			{user} == username
 			{host} == hostname
 			{cwd} == current working directory
-			ASCII color sequence == color will be later!
+			ASCII color sequence == it is what it is
 		*/
 
 		size_t posfind = 0;
@@ -538,7 +543,8 @@ std::string readprompt(int lastexit) // this varies
 		while ((posfind=userprompt.find("{cwd}"))!=std::string::npos)
 			userprompt.replace(posfind, 5, cwd);
 
-		// later	
+		while ((posfind=userprompt.find("\\033"))!=std::string::npos)
+			userprompt.replace(posfind, 4, "\033");	
 
 		return userprompt;
 	}
