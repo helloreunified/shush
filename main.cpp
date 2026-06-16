@@ -33,10 +33,28 @@ SOFTWARE.
 #include "linenoise.h"
 
 std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
+std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
+auto compiledate = __DATE__;
+auto compiletime = __TIME__;
+auto snapshot = 5; // changes for every release
+
 struct {
 	std::string home, user, hostname;
 	std::unordered_map<std::string, std::string> aliastable;
 } shellenv; // contain shell-specific environment tables
+struct fdinfo {
+	std::string opexpr = ""; // file description operator
+	bool append_stdout = false;
+	bool append_stderr = false;
+
+	std::string stdinf = "";
+	std::string stdoutf= "";
+	std::string stderrf= "";
+}; // contain information about a command's file descriptor properties
+struct cmdinfo {
+	std::vector<std::string> tokens;
+	fdinfo filedesc;
+}; // contain information to process a command in a pipeline segment
 
 void loadalias()
 {
@@ -68,7 +86,7 @@ bool writealias()
 			file << getalias.first << "=" << getalias.second << "\n";
 		file.close(); return true;
 	} else {
-		std::cerr << "Alias table file not found. All alias were not saved, please return to your terminal and exit again if you don't want it saved.\n";
+		std::cerr << "Alias table file not found.\n";
 		return false;
 	}
 }
@@ -118,6 +136,41 @@ std::string foundexe(std::string file)
 	}
 
 	return "I found something";
+}
+
+int cmdexec(const std::vector<std::string>& tokens)
+{
+	std::vector<char*> argvect;
+	for (const std::string& have : tokens)
+		argvect.push_back(const_cast<char*>(&have[0]));
+	argvect.push_back(nullptr);
+
+	pid_t pid = fork();
+	
+	if (pid<0) {
+		std::cerr << "Failed to create process.\n";
+		return -3;
+	}
+	if (!pid) {
+		execvp(argvect[0], argvect.data());
+
+		std::cerr << "Executable not found, maybe obviously.\n";
+		_exit(127);
+	}
+	else {
+		int status = 0;
+		pid_t waitcode = waitpid(pid, &status, 0);
+
+		if (waitcode==-1) {
+			std::cerr << "There's no such child process down there.\n";
+			return -2;
+		}
+
+		if (WIFEXITED(status))
+			return WEXITSTATUS(status);
+		
+		return -1; // I don't know how one can reach here, but leave it here
+	}
 }
 
 int shellcmd(const std::vector<std::string>& tokens)
@@ -294,6 +347,14 @@ int shellcmd(const std::vector<std::string>& tokens)
 		return 0;
 	}
 
+	if (tokens[0]=="version" || tokens[0]=="snapshot") {
+		std::cout << "segmentated hirachically untitled shell\n";
+		std::cout << "snapshot " << snapshot << '\n';
+		std::cout << "usage:" << " please use `help` command to see a list of built-in commands\n";
+		std::cout << "compiled on " << compiledate << " at " << compiletime << " UTC+7\n";
+		return 0;
+	}
+
 	return -1;
 }
 
@@ -307,9 +368,33 @@ std::pair<std::string, bool> rtvarexp(std::string name) // runtime variable expa
 		return {"", true}; // evaluates to true if variable not found
 }
 
-std::vector<std::string> parse(std::string readline)
+void fillfd(cmdinfo& __current, const std::string& tofile) { // manipulate fd info if needed
+	fdinfo& filedesc = __current.filedesc;
+	if (filedesc.opexpr==">>" || filedesc.opexpr=="1>>") {
+		filedesc.stdoutf = tofile;
+		filedesc.append_stdout = true;
+	}
+	if (filedesc.opexpr=="2>>") {
+		filedesc.stderrf = tofile;
+		filedesc.append_stderr = true;
+	}
+	if (filedesc.opexpr==">" || filedesc.opexpr=="1>")
+		filedesc.stdoutf = tofile;
+	if (filedesc.opexpr=="2>")
+		filedesc.stderrf = tofile;
+	if (filedesc.opexpr=="<")
+		filedesc.stdinf = tofile;
+	if (filedesc.opexpr=="|")
+		filedesc.stdinf = tofile; // i don't think so
+}
+
+// trying so hard for this to still compile
+std::vector<cmdinfo> parse(std::string readline)
 {
-	std::vector<std::string> tokens;
+	std::vector<cmdinfo> pipeline;
+	cmdinfo __current;
+	std::vector<std::string>& tokens = __current.tokens;
+	
 	std::string qtbuff(""); // quote buffer
 	uint16_t quotestate = 0; // quote state
 	
@@ -323,12 +408,48 @@ std::vector<std::string> parse(std::string readline)
 		if (quotestate==0) {
 			if (fetch=='\"') quotestate=1;
 			else if (fetch=='\'') quotestate=2;
-			else if (fetch!=' ') qtbuff += fetch;
-			else {
+			else if (fetch==' ') {
 				if (!qtbuff.empty()) {
 					tokens.push_back(qtbuff);
 					qtbuff.clear();
 				}
+			}
+			else {
+				std::string fdop = "";
+				std::string tofile = "";
+				for (const std::string& op : fdesc)
+					if (i + op.size() <= readline.size()) // prevents stupid segfaults
+						if (readline.compare(i, op.size(), op)==0) {
+							fdop = op;
+							break;
+						}
+				__current.filedesc.opexpr = fdop;
+
+				if (!qtbuff.empty()) {
+					tokens.push_back(qtbuff);
+					qtbuff.clear();
+				}
+
+				if (fdop=="|") {
+					// how do I redirect stdout from this command to stdin in the next
+				} else
+				if (!fdop.empty()) {
+					size_t where = i + __current.filedesc.opexpr.size();
+					while (readline[where]==' ')
+						where++;
+
+					std::string tofile = "";
+					while (where < readline.size() && readline[where]!=' ') {
+						tofile += readline[where];
+						where++;
+					}
+
+					i = where-1; // update iterator
+					
+					fillfd(__current, tofile);
+				}
+				else
+					qtbuff += fetch;
 			}
 		} else
 
@@ -401,42 +522,7 @@ std::vector<std::string> parse(std::string readline)
 		return {};
 	}
 	
-	return tokens;
-}
-
-int cmdexec(const std::vector<std::string>& tokens)
-{
-	std::vector<char*> argvect;
-	for (const std::string& have : tokens)
-		argvect.push_back(const_cast<char*>(&have[0]));
-	argvect.push_back(nullptr);
-
-	pid_t pid = fork();
-	
-	if (pid<0) {
-		std::cerr << "Failed to create process.\n";
-		return -3;
-	}
-	if (!pid) {
-		execvp(argvect[0], argvect.data());
-
-		std::cerr << "Executable not found, maybe obviously.\n";
-		_exit(127);
-	}
-	else {
-		int status = 0;
-		pid_t waitcode = waitpid(pid, &status, 0);
-
-		if (waitcode==-1) {
-			std::cerr << "There's no such child process down there.\n";
-			return -2;
-		}
-
-		if (WIFEXITED(status))
-			return WEXITSTATUS(status);
-		
-		return -1; // I don't know how one can reach here, but leave it here
-	}
+	return {};
 }
 
 std::string expandDir(std::string dir)
@@ -444,7 +530,6 @@ std::string expandDir(std::string dir)
 	if (dir.empty()) return dir;
 	if (dir[0]=='~')
 		return shellenv.home + dir.substr(1);
-
 	return dir;
 }
 
@@ -588,12 +673,12 @@ int main()
 			lastexit = system(expandDir(readline).c_str());
 		} else
 		{
-			std::vector<std::string> tokens = parse(readline);
-			if (tokens.empty()) continue; // if you didn't type anything
+			std::vector<cmdinfo> pipeline = parse(readline);
+			if (pipeline.empty()) continue; // if you didn't type anything
 
 			// test against shell commands first then find executable later
-			int useshellcmd = shellcmd(tokens);
-			lastexit = (useshellcmd==-1) ? cmdexec(tokens) : useshellcmd;		
+			int useshellcmd = shellcmd({});
+			lastexit = (useshellcmd==-1) ? cmdexec({}) : useshellcmd;		
 		}
 	}
 
