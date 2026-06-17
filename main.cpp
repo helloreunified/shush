@@ -130,41 +130,6 @@ std::string foundexe(std::string file)
 	return "I found something";
 }
 
-int cmdexec(const std::vector<std::string>& tokens)
-{
-	std::vector<char*> argvect;
-	for (const std::string& have : tokens)
-		argvect.push_back(const_cast<char*>(&have[0]));
-	argvect.push_back(nullptr);
-
-	pid_t pid = fork();
-	
-	if (pid<0) {
-		std::cerr << "Failed to create process.\n";
-		return -3;
-	}
-	if (!pid) {
-		execvp(argvect[0], argvect.data());
-
-		std::cerr << "Executable not found, maybe obviously.\n";
-		_exit(127);
-	}
-	else {
-		int status = 0;
-		pid_t waitcode = waitpid(pid, &status, 0);
-
-		if (waitcode==-1) {
-			std::cerr << "There's no such child process down there.\n";
-			return -2;
-		}
-
-		if (WIFEXITED(status))
-			return WEXITSTATUS(status);
-		
-		return -1; // I don't know how one can reach here, but leave it here
-	}
-}
-
 int shellcmd(const std::vector<std::string>& tokens)
 {
 	if (tokens[0]=="unalias") {
@@ -559,16 +524,20 @@ void prepcfg()
 	std::filesystem::path cfgpath = std::filesystem::current_path() / ".shushcfg";
 	// as a portable shell, this leaves a very inherent reminder in that
 
-	if (!(std::filesystem::exists(cfgpath) && std::filesystem::is_directory(cfgpath)))
-		cmdexec({"mkdir", cfgpath.string()});
+	if (!std::filesystem::exists(cfgpath) || !std::filesystem::is_directory(cfgpath))
+		std::filesystem::create_directory(cfgpath);
 
 	std::filesystem::path txtcfg = cfgpath / "config.shush";
-	if (!(std::filesystem::exists(txtcfg) && !std::filesystem::is_directory(txtcfg)))
-		cmdexec({"touch", txtcfg.string()});
+	if (!std::filesystem::exists(txtcfg) || std::filesystem::is_directory(txtcfg)) {
+		std::ofstream file(txtcfg);
+		file.close();
+	}
 
 	std::filesystem::path aliascfg = cfgpath / "alias.shush";
-		if (!(std::filesystem::exists(aliascfg) && !std::filesystem::is_directory(aliascfg)))
-			cmdexec({"touch", aliascfg.string()});
+	if (!std::filesystem::exists(aliascfg) || std::filesystem::is_directory(aliascfg)) {
+		std::ofstream file(aliascfg);
+		file.close();
+	}
 }
 
 bool notify_no_prompt_once = false;
@@ -664,27 +633,63 @@ int main()
 		linenoiseHistoryAdd(readline.c_str()); // add it
 
 		// resolve input
-		if (readline=="exit")
-			break;
-		else
-		{
-			std::vector<cmdinfo> pipeline = parse(readline);
-			if (pipeline.empty()) continue; // if you didn't type anything
-			int lastexit; // whatever will be set
+		std::vector<cmdinfo> pipeline = parse(readline);
 
-			for (const cmdinfo& __current : pipeline) {				
-				if (isScript(__current.tokens[0])) // critical bugfix, somehow went unnoticed for the last several snapshots
-					lastexit = system(expandDir(readline).c_str());
-				else {
-					// test against shell commands first then find executable later
-					int useshellcmd = shellcmd({});
-					lastexit = (useshellcmd==-1) ? cmdexec({}) : useshellcmd;
+		/*
+			a few things to get it cleared up:
+			1. don't pipe when it's the last element
+			2. setup an array for I/O pointers
+			3. sum up child pids to construct error codes later or to use later
+		*/
+
+		for (size_t i=0; i<pipeline.size(); i++) {
+			// fetch information and init first
+			std::vector<std::string> tokens = pipeline[i].tokens;
+			fdinfo filedesc = pipeline[i].filedesc;
+			bool at_last = (i==pipeline.size()-1);
+			int pipefds[2]; // read/write ends
+
+			std::vector<char*> argvect;
+			for (const std::string& have : tokens)
+				argvect.push_back(const_cast<char*>(&have[0]));
+			argvect.push_back(nullptr);
+
+			if (!at_last)
+				if (pipe(pipefds)<0) {
+					std::cerr << "Failed to pipe, bailing out from this command on\n";
+
+					// prevent bugs
+					break;
 				}
 
-				exitcause.push_back(lastexit);
+			pid_t pid = fork();
+			
+			if (pid<0) {
+				std::cerr << "Failed to create child process, bailing out from this command on\n";
+
+				// cleanup
+				close(pipefds[0]);
+				close(pipefds[1]);
+
+				// prevent bugs
+				break;
+			}
+			if (pid==0) {
+				// open or make file
+				// dup2() on stdin
+				// run
+				// dup2() on stdout
+			}
+			if (pid>0) {
+				// insert exit code
+				exitcause.push_back(pid);
+
+				close(pipefds[0]);
+				close(pipefds[1]);
 			}
 		}
 
+		// cleanup
 		exitcause.clear();
 	}
 	
