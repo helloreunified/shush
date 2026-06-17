@@ -314,13 +314,13 @@ int shellcmd(const std::vector<std::string>& tokens)
 	if (tokens[0]=="alias") {
 		if (tokens.size()>2) std::cerr << "Ignoring unnecessary specifications.\n";
 		if (tokens.size()<2) {
-			std::cerr << "Not enough arguments.";
+			std::cerr << "Not enough arguments.\n";
 			return 9;
 		}
 		
 		size_t delimiter = tokens[1].find("=");
 		if (delimiter==std::string::npos) {
-			std::cerr << "Where's your equal sign?";
+			std::cerr << "Where's your equal sign?\n";
 			return 10;
 		}
 
@@ -431,17 +431,19 @@ std::vector<cmdinfo> parse(std::string readline)
 				}
 
 				if (fdop=="|") {
-					// how do I redirect stdout from this command to stdin in the next
+					pipeline.push_back(__current); // add to pipe
+					__current = cmdinfo(); // reinit
+					tokens = __current.tokens; // remaps
 				} else
 				if (!fdop.empty()) {
 					size_t where = i + __current.filedesc.opexpr.size();
 					while (readline[where]==' ')
-						where++;
+						where++; // e.g. grep> hello| echo
 
 					std::string tofile = "";
 					while (where < readline.size() && readline[where]!=' ') {
 						tofile += readline[where];
-						where++;
+						where++; // e.g. grep >hello | echo
 					}
 
 					i = where-1; // update iterator
