@@ -102,14 +102,6 @@ void fetchenv()
 	shellenv.hostname = (gethostname(hostnamebuffer, 256)==0) ? hostnamebuffer : "undefined";
 }
 
-std::string errlookup(int opcode)
-{
-	if (!opcode)
-		return "";
-	else
-		return "Catastrophic error.\n";
-}
-
 bool isbuiltin(std::string file)
 {
 	for (long unsigned int i=0; i<size(shellutils); i++)
@@ -580,7 +572,7 @@ void prepcfg()
 }
 
 bool notify_no_prompt_once = false;
-std::string readprompt(int lastexit) // this varies
+std::string readprompt(std::vector<int> exitcause) // this varies
 {
 	// predefine some necessity
 	std::filesystem::path txtcfg = std::filesystem::current_path() / ".shushcfg" / "config.shush";
@@ -602,14 +594,21 @@ std::string readprompt(int lastexit) // this varies
 	}
 	
 	std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
-	if (lastexit!=0) exampleprompt += " [" + std::to_string(lastexit) + "]";
+	if (exitcause.size()>1 ||
+		exitcause[0]!=0) {
+		exampleprompt += " [";
+		for (const int& currentexit : exitcause)
+			exampleprompt += std::to_string(currentexit) + "|";
+		exampleprompt.erase(exampleprompt.end());
+		exampleprompt += "]";
+	}
 	exampleprompt += " % ";
 
 	// return accordingly
 	if (!(std::filesystem::exists(txtcfg) && !std::filesystem::is_directory(txtcfg))
 		|| !foundpromptcfg) {
 		if (!notify_no_prompt_once) {
-			std::cout << "A small warning that config.shush failed to create or found, or the specific configuration wasn't found.\n";
+			std::cout << "A small warning that config.shush failed to be create or found, or the specific configuration wasn't found.\n";
 			notify_no_prompt_once = true;
 		}
 		return exampleprompt;
@@ -640,22 +639,20 @@ std::string readprompt(int lastexit) // this varies
 int main()
 {
 	prepcfg(); fetchenv(); loadalias();
-	int lastexit = 0;
+	std::vector<int> exitcause;
 	linenoiseHistorySetMaxLen(20);
 
 	while (true)
 	{
 		// request defined prompt
-		std::string reqprompt = readprompt(lastexit);
+		std::string reqprompt = (exitcause.size()>0) ? readprompt(exitcause[exitcause.size()-1]) : readprompt(0);
 
 		// request reference to input
 		char* inputbuffer = linenoise(reqprompt.c_str());
 
 		// you used ^D
-		if (inputbuffer==nullptr) {
-			lastexit = 0;
+		if (inputbuffer==nullptr)
 			break;
-		}
 
 		// read input line
 		std::string readline = (std::string)inputbuffer;
@@ -667,28 +664,29 @@ int main()
 		linenoiseHistoryAdd(readline.c_str()); // add it
 
 		// resolve input
-		if (readline=="exit") {
-			lastexit = 0;
+		if (readline=="exit")
 			break;
-		} else
-		if (isScript(readline)) {
-			lastexit = system(expandDir(readline).c_str());
-		} else
+		else
 		{
 			std::vector<cmdinfo> pipeline = parse(readline);
 			if (pipeline.empty()) continue; // if you didn't type anything
+			int lastexit; // whatever will be set
 
-			// test against shell commands first then find executable later
-			int useshellcmd = shellcmd({});
-			lastexit = (useshellcmd==-1) ? cmdexec({}) : useshellcmd;		
+			for (const cmdinfo& __current : pipeline) {				
+				if (isScript(__current.tokens[0])) // critical bugfix, somehow went unnoticed for the last several snapshots
+					lastexit = system(expandDir(readline).c_str());
+				else {
+					// test against shell commands first then find executable later
+					int useshellcmd = shellcmd({});
+					lastexit = (useshellcmd==-1) ? cmdexec({}) : useshellcmd;
+				}
+
+				exitcause.push_back(lastexit);
+			}
 		}
+
+		exitcause.clear();
 	}
-
-	// print a newline before exiting
-	std::cout << "Process exited with error code " << lastexit << ".\n";
-	std::cerr << errlookup(lastexit);
-
-	if (!writealias()) { prepcfg(); writealias(); }
 	
-	return lastexit;
+	return 0; // removed decorative function, we going ball
 }
