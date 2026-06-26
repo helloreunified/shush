@@ -582,7 +582,7 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 		}
 		return exampleprompt;
 	} else {
-		std::cout << "Note that any prompt over 2048 characters in raw will be cut off in snapshot 6 or later.\n";	
+		std::cout << "Note that any prompt over 512 characters in raw will be cut off in snapshot 6 or later.\n";	
 		/*
 			{user} == username
 			{host} == hostname
@@ -609,12 +609,13 @@ int main()
 {
 	prepcfg(); fetchenv(); loadalias();
 	std::vector<int> exitcause;
-	linenoiseHistorySetMaxLen(20);
+	linenoiseHistorySetMaxLen(39); // 
 
 	while (true)
 	{
-		// request defined prompt
-		std::string reqprompt = (exitcause.size()>0) ? readprompt(exitcause[exitcause.size()-1]) : readprompt(0);
+		// request defined prompt and scrap old exit codes
+		std::string reqprompt = readprompt(exitcause);
+		exitcause.clear();
 
 		// request reference to input
 		char* inputbuffer = linenoise(reqprompt.c_str());
@@ -635,13 +636,6 @@ int main()
 		// resolve input
 		std::vector<cmdinfo> pipeline = parse(readline);
 
-		/*
-			a few things to get it cleared up:
-			1. don't pipe when it's the last element
-			2. setup an array for I/O pointers
-			3. sum up child pids to construct error codes later or to use later
-		*/
-
 		for (size_t i=0; i<pipeline.size(); i++) {
 			// fetch information and init first
 			std::vector<std::string> tokens = pipeline[i].tokens;
@@ -657,8 +651,6 @@ int main()
 			if (!at_last)
 				if (pipe(pipefds)<0) {
 					std::cerr << "Failed to pipe, bailing out from this command on\n";
-
-					// prevent bugs
 					break;
 				}
 
@@ -666,26 +658,47 @@ int main()
 			
 			if (pid<0) {
 				std::cerr << "Failed to create child process, bailing out from this command on\n";
-
-				// cleanup
+				
 				close(pipefds[0]);
 				close(pipefds[1]);
 
-				// prevent bugs
 				break;
 			}
 			if (pid==0) {
-				// open or make file
-				// dup2() on stdin
-				// run
-				// dup2() on stdout
-			}
-			if (pid>0) {
-				// insert exit code
-				exitcause.push_back(pid);
+				if (!filedesc.stdinf.empty())
+					if (dup2(pipefds[0], STDIN_FILENO) == -1)
+						std::cerr << "Failed to change input descriptor, resorting to stdin\n";
+				if (!filedesc.stdoutf.empty()
+				 || !filedesc.stderrf.empty())
+					if (dup2(pipefds[1], STDOUT_FILENO) == -1)
+						std::cerr << "Failed to change output descriptor, resorting to stdout/stderr\n";			
 
+				execvp(argvect[0], argvect.data());
+
+				std::cerr << "Executable not found, maybe obviously.\n";
+				exitcause.push_back(127);
+
+				// close this entry
 				close(pipefds[0]);
 				close(pipefds[1]);
+			}
+			if (pid>0) {
+				// fetch status
+				int status = 0;
+				pid_t waitpid(pid, &status, 0);
+
+				// decode and insert
+				if (WIFEXITED(status))
+					exitcause.push_back(WEXITSTATUS(status));
+				else {
+					int sig = WTERMSIG(status);
+					exitcause.push_back(128 + sig);
+				}
+
+				// shut down the pipe
+				close(pipefds[0]);
+				close(pipefds[1]);
+
 			}
 		}
 
