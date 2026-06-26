@@ -635,7 +635,10 @@ int main()
 
 		// resolve input
 		std::vector<cmdinfo> pipeline = parse(readline);
-		// 
+		// run concurrently so it doesn't crash the stack
+		std::vector<pid_t> pidlist = {};
+		// used to know when to fetch and when to push
+		int infile_fd = STDERR_FILENO; // there's nothing yet, default to stdin to read from first command
 
 		for (size_t i=0; i<pipeline.size(); i++) {
 			// fetch information and init first
@@ -656,7 +659,6 @@ int main()
 				}
 
 			pid_t pid = fork(); // spawn child process
-			int infile_fd = STDERR_FILENO; // there's nothing, default to stdin
 			
 			if (pid<0) {
 				std::cerr << "Failed to create child process, bailing out from this command on\n";
@@ -669,12 +671,10 @@ int main()
 				break; // bail out
 			}
 			if (pid==0) {
-				if (infile != STDIN_FILENO) { // keeps the data flow moving
-					dup2(infile_fd, STDIN_FILENO);
+				if (infile_fd != STDIN_FILENO) { // keeps the data flow moving
+					dup2(infile_fd, STDIN_FILENO); // read from previous iteration
 					close(infile_fd);
 				}
-
-				
 
 				execvp(argvect[0], argvect.data());
 
@@ -686,29 +686,32 @@ int main()
 				close(pipefds[1]);
 			}
 			if (pid>0) {
-				// fetch status
-				int status = 0;
-				pid_t waitpid(pid, &status, 0);
-
-				// decode and insert
-				if (WIFEXITED(status))
-					exitcause.push_back(WEXITSTATUS(status));
-				else {
-					int sig = WTERMSIG(status);
-					exitcause.push_back(128 + sig);
-				}
-
-				// shut down the pipe
-				close(pipefds[0]);
+				// shut down and transfer ownership of data
 				close(pipefds[1]);
 
-				if (!at_last)
-					dup2(STDOUT_FILENO, pipefds[1]);
+				infile_fd = pipefds[0];
+				close(pipefds[0]); // disown after hardlinking
+
+				pidlist.push_back(pid);
 			}
 		}
 
 		// cleanup
 		exitcause.clear();
+
+		// construct exitcodes
+		for (pid_t sel : pidlist) {
+			int status = 0; // store exit status later
+			waitpid(sel, &status, 0); // wait
+			
+			if (WIFEXITED(status))
+				exitcause.push_back(WEXITSTATUS(status));
+			else {
+				int sig = WTERMSIG(status);
+				exitcause.push_back(128 + sig);
+			}
+		}
+
 	}
 	
 	return 0; // removed decorative function, we going ball
