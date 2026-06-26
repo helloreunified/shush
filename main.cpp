@@ -635,6 +635,7 @@ int main()
 
 		// resolve input
 		std::vector<cmdinfo> pipeline = parse(readline);
+		// 
 
 		for (size_t i=0; i<pipeline.size(); i++) {
 			// fetch information and init first
@@ -643,40 +644,42 @@ int main()
 			bool at_last = (i==pipeline.size()-1);
 			int pipefds[2]; // read/write ends
 
-			std::vector<char*> argvect;
+			std::vector<char*> argvect; // make argv for execvp
 			for (const std::string& have : tokens)
 				argvect.push_back(const_cast<char*>(&have[0]));
 			argvect.push_back(nullptr);
 
 			if (!at_last)
 				if (pipe(pipefds)<0) {
-					std::cerr << "Failed to pipe, bailing out from this command on\n";
+					std::cerr << "Failed to make pipe, bailing out from this command on\n";
 					break;
 				}
 
-			pid_t pid = fork();
+			pid_t pid = fork(); // spawn child process
+			int infile_fd = STDERR_FILENO; // there's nothing, default to stdin
 			
 			if (pid<0) {
 				std::cerr << "Failed to create child process, bailing out from this command on\n";
-				
+
+				// close file descriptors
+				close(infile_fd);
 				close(pipefds[0]);
 				close(pipefds[1]);
-
-				break;
+				
+				break; // bail out
 			}
 			if (pid==0) {
-				if (!filedesc.stdinf.empty())
-					if (dup2(pipefds[0], STDIN_FILENO) == -1)
-						std::cerr << "Failed to change input descriptor, resorting to stdin\n";
-				if (!filedesc.stdoutf.empty()
-				 || !filedesc.stderrf.empty())
-					if (dup2(pipefds[1], STDOUT_FILENO) == -1)
-						std::cerr << "Failed to change output descriptor, resorting to stdout/stderr\n";			
+				if (infile != STDIN_FILENO) { // keeps the data flow moving
+					dup2(infile_fd, STDIN_FILENO);
+					close(infile_fd);
+				}
+
+				
 
 				execvp(argvect[0], argvect.data());
 
 				std::cerr << "Executable not found, maybe obviously.\n";
-				exitcause.push_back(127);
+				_exit(127); // exit code will be pushed later
 
 				// close this entry
 				close(pipefds[0]);
@@ -699,6 +702,8 @@ int main()
 				close(pipefds[0]);
 				close(pipefds[1]);
 
+				if (!at_last)
+					dup2(STDOUT_FILENO, pipefds[1]);
 			}
 		}
 
