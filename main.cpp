@@ -269,7 +269,7 @@ int shellcmd(const std::vector<std::string>& tokens)
 		}
 
 	if (tokens[0]=="alias") {
-		if (tokens.size()>2) std::cerr << "Ignoring unnecessary specifications.\n";
+		if (tokens.size()>2) std::cerr << "Ignoring unnecessary specifications\n";
 		if (tokens.size()<2) {
 			std::cerr << "Not enough arguments.\n";
 			return 9;
@@ -640,6 +640,7 @@ int main()
 		// used to know when to fetch and when to push
 		int infile_fd = STDERR_FILENO; // there's nothing yet, default to stdin to read from first command
 
+		bool shell_command_first = true; 
 		for (size_t i=0; i<pipeline.size(); i++) {
 			// fetch information and init first
 			std::vector<std::string> tokens = pipeline[i].tokens;
@@ -656,7 +657,9 @@ int main()
 				if (pipe(pipefds)<0) {
 					std::cerr << "Failed to make pipe, bailing out from this command on\n";
 					break;
-				}
+				}			
+
+			
 
 			pid_t pid = fork(); // spawn child process
 			
@@ -670,24 +673,30 @@ int main()
 				
 				break; // bail out
 			}
-			if (pid==0) {
+			if (pid==0) { // assume it's not a shell command
 				if (infile_fd != STDIN_FILENO) { // keeps the data flow moving
 					dup2(infile_fd, STDIN_FILENO); // read from previous iteration
 					close(infile_fd); // is secretly pipefds[0], really
 				}
 
-				if (shellcmd(tokens) == -1) {
+				int child_shellcmd_result = shellcmd(tokens);
+				if (child_shellcmd_result == -1) {
 					execvp(argvect[0], argvect.data());
 
 					std::cerr << "Executable not found, maybe obviously.\n";
 					_exit(127); // exit code will be pushed later
-
-					// close this entry
-					close(pipefds[0]);
-					close(pipefds[1]);
 				}
+
+				// close this entry
+				close(pipefds[0]);
+				close(pipefds[1]);
 			}
-			if (pid>0) {
+			if (pid>0 || shell_command_first) {
+				if (shell_command_first) { 
+					shellcmd(tokens);
+					shell_command_first = false;
+				}
+			
 				if (infile_fd != STDIN_FILENO) // ignores stdin on first command
 					close(infile_fd); // remove "symlink" to dead writing pipeline
 			
@@ -695,7 +704,7 @@ int main()
 					// do not leak file descriptor tables
 					close(pipefds[1]);
 					// pass it on
-					infile_fd = pipefds[0];
+					infile_fd = pipefds[0];	
 				}
 
 				// add pid to track
