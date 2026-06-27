@@ -403,7 +403,7 @@ std::vector<cmdinfo> parse(std::string readline)
 						where++; // e.g. grep >hello | echo
 					}
 
-					i = where-1; // update iterator
+					i = where; // update iterator
 					
 					fillfd(__current, tofile);
 				}
@@ -481,7 +481,7 @@ std::vector<cmdinfo> parse(std::string readline)
 		return {};
 	}
 	
-	return {};
+	return pipeline;
 }
 
 std::string expandDir(std::string dir)
@@ -564,7 +564,7 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 	
 	std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
 	if (exitcause.size()>1 ||
-		exitcause[0]!=0) {
+		(!exitcause.empty() && exitcause[0]!=0)){
 		exampleprompt += " [";
 		for (const int& currentexit : exitcause)
 			exampleprompt += std::to_string(currentexit) + "|";
@@ -673,25 +673,32 @@ int main()
 			if (pid==0) {
 				if (infile_fd != STDIN_FILENO) { // keeps the data flow moving
 					dup2(infile_fd, STDIN_FILENO); // read from previous iteration
-					close(infile_fd);
+					close(infile_fd); // is secretly pipefds[0], really
 				}
 
-				execvp(argvect[0], argvect.data());
+				if (shellcmd(tokens) == -1) {
+					execvp(argvect[0], argvect.data());
 
-				std::cerr << "Executable not found, maybe obviously.\n";
-				_exit(127); // exit code will be pushed later
+					std::cerr << "Executable not found, maybe obviously.\n";
+					_exit(127); // exit code will be pushed later
 
-				// close this entry
-				close(pipefds[0]);
-				close(pipefds[1]);
+					// close this entry
+					close(pipefds[0]);
+					close(pipefds[1]);
+				}
 			}
 			if (pid>0) {
-				// shut down and transfer ownership of data
-				close(pipefds[1]);
+				if (infile_fd != STDIN_FILENO) // ignores stdin on first command
+					close(infile_fd); // remove "symlink" to dead writing pipeline
+			
+				if (!at_last) { // not at last, pass the data
+					// do not leak file descriptor tables
+					close(pipefds[1]);
+					// pass it on
+					infile_fd = pipefds[0];
+				}
 
-				infile_fd = pipefds[0];
-				close(pipefds[0]); // disown after hardlinking
-
+				// add pid to track
 				pidlist.push_back(pid);
 			}
 		}
@@ -712,6 +719,7 @@ int main()
 			}
 		}
 
+		pidlist.clear();
 	}
 	
 	return 0; // removed decorative function, we going ball
