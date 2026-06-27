@@ -30,6 +30,7 @@ SOFTWARE.
 #include <filesystem>
 #include <fstream>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include "linenoise.h"
 
 std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
@@ -638,14 +639,85 @@ int main()
 		// run concurrently so it doesn't crash the stack
 		std::vector<pid_t> pidlist = {};
 		// used to know when to fetch and when to push
-		int infile_fd = STDERR_FILENO; // there's nothing yet, default to stdin to read from first command
+		int infile_fd = STDIN_FILENO; // there's nothing yet, default to stdin to read from first command
 
-		bool shell_command_first = true; 
+		if (pipeline.size() == 1)  { // don't mix it up with pipes!
+			fdinfo &filedesc = pipeline[0].filedesc;
+
+			int shellcmd_result = shellcmd(pipeline[0].tokens);
+			exitcause.push_back(shellcmd_result);
+
+			// preserve before its definition change
+			int procstdin = dup(STDIN_FILENO);
+			int procstdout = dup(STDOUT_FILENO);
+			int procstderr = dup(STDERR_FILENO);
+			// since we don't _exit(1) inside parent to terminate forthwith
+			bool redirection_failed = false;
+
+			if (!filedesc.stdinf.empty()) {
+				int fflag = O_RDONLY;
+				int infd = open(filedesc.stdinf.c_str(), fflag);
+
+				if (infd < 0) {
+					std::cerr << "fatal error, cannot read from file\n";
+					redirection_failed = true;
+					continue; // immediate skip
+				}
+			}
+
+			// this exists so the mental model is predictable
+			if (!redirection_failed && !filedesc.stdoutf.empty()) {
+				int fflag = O_WRONLY | O_CREAT;
+				if (filedesc.append_stdout)
+					fflag |= O_TRUNC;
+				else
+					fflag |= O_APPEND;
+				int infd = open(filedesc.stdoutf.c_str(), fflag, 0644);
+
+				if (infd < 0) {
+					std::cerr << "fatal error, cannot write stdout to file\n";
+					redirection_failed = true;
+					continue;
+				}
+
+				dup2(infd, STDOUT_FILENO);
+				close(infd);
+			}
+			
+			if (!redirection_failed && !filedesc.stderrf.empty()) {
+				int fflag = O_WRONLY | O_CREAT;
+				if (filedesc.append_stderr)
+					fflag |= O_TRUNC;
+				else
+					fflag |= O_APPEND;
+				int infd = open(filedesc.stdoutf.c_str(), fflag, 0644);
+
+				if (infd < 0) {
+					std::cerr << "fatal error, cannot write stderr to file\n";
+					redirection_failed = true;
+					continue;
+				}
+
+				dup2(infd, STDOUT_FILENO);
+				close(infd);
+			}
+
+			// in the parent process, we must be sensitive about its I/O ends
+			dup2(procstdin, STDIN_FILENO);
+			dup2(procstdout, STDOUT_FILENO);
+			dup2(procstderr, STDERR_FILENO);
+			close(procstdin);
+			close(procstdout);
+			close(procstderr);
+			
+			continue; // skip the pipe since this isn't
+		}
+
 		for (size_t i=0; i<pipeline.size(); i++) {
 			// fetch information and init first
-			std::vector<std::string> tokens = pipeline[i].tokens;
-			fdinfo filedesc = pipeline[i].filedesc;
-			bool at_last = (i==pipeline.size()-1);
+			std::vector<std::string> &tokens = pipeline[i].tokens;
+			fdinfo &filedesc = pipeline[i].filedesc;
+			bool at_last = (i == pipeline.size()-1);
 			int pipefds[2]; // read/write ends
 
 			std::vector<char*> argvect; // make argv for execvp
@@ -657,9 +729,7 @@ int main()
 				if (pipe(pipefds)<0) {
 					std::cerr << "Failed to make pipe, bailing out from this command on\n";
 					break;
-				}			
-
-			
+				}						
 
 			pid_t pid = fork(); // spawn child process
 			
@@ -679,24 +749,79 @@ int main()
 					close(infile_fd); // is secretly pipefds[0], really
 				}
 
-				int child_shellcmd_result = shellcmd(tokens);
-				if (child_shellcmd_result == -1) {
-					execvp(argvect[0], argvect.data());
+				if (!at_last) { // if not, then proceeds to output to our stack
+					dup2(pipefds[1], STDOUT_FILENO); // stdout now points to the stack
 
-					std::cerr << "Executable not found, maybe obviously.\n";
-					_exit(127); // exit code will be pushed later
+					// make sure to close redundant fds
+					close(pipefds[0]);
+					close(pipefds[1]);
 				}
 
-				// close this entry
+				// we do this because we fill out concurrently
+				if (!filedesc.stdinf.empty()) {
+					int fflag = O_RDONLY; // file permission flags
+					int infd = open(filedesc.stdinf.c_str(), fflag); // fd info
+
+					if (infd < 0) { // it failed
+						std::cerr << "fatal error, cannot read from file\n";
+						_exit(1);
+					}
+
+					// transfer
+					dup2(infd, STDIN_FILENO);
+					close(infd);
+				}
+
+				if (!filedesc.stdoutf.empty()) {
+					int fflag = O_WRONLY | O_CREAT; // write only and make file
+					if (filedesc.append_stdout)
+						fflag |= O_APPEND; // append
+					else
+						fflag |= O_TRUNC; // overwrite
+					int infd = open(filedesc.stdoutf.c_str(), fflag, 0644);
+
+					if (infd < 0) {
+						std::cerr << "fatal error, cannot write stdout to file\n";
+						_exit(1);
+					}
+
+					dup2(infd, STDOUT_FILENO);
+					close(infd);
+				}
+
+				if (!filedesc.stderrf.empty()) {
+					int fflag = O_WRONLY | O_CREAT;
+					if (filedesc.append_stderr)
+						fflag |= O_APPEND;
+					else
+						fflag |= O_TRUNC;
+					int infd = open(filedesc.stderrf.c_str(), fflag, 0644);
+
+					if (infd < 0) {
+						std::cerr << "fatal error, cannot write stderr to file\n";
+						_exit(1);
+					}
+
+					dup2(infd, STDERR_FILENO);
+					close(infd);
+				}
+
+				// clean handling of shell commands
+				int child_shellcmd_result = shellcmd(tokens);
+				if (child_shellcmd_result != -1)
+					_exit(child_shellcmd_result);
+				
+
+				execvp(argvect[0], argvect.data());
+
+				std::cerr << "Executable not found, maybe obviously.\n";
+				_exit(127); // exit code will be pushed later
+
+				// close this entry if failed
 				close(pipefds[0]);
 				close(pipefds[1]);
 			}
-			if (pid>0 || shell_command_first) {
-				if (shell_command_first) { 
-					shellcmd(tokens);
-					shell_command_first = false;
-				}
-			
+			if (pid>0) {			
 				if (infile_fd != STDIN_FILENO) // ignores stdin on first command
 					close(infile_fd); // remove "symlink" to dead writing pipeline
 			
