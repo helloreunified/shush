@@ -351,7 +351,6 @@ std::vector<cmdinfo> parse(std::string readline)
 {
 	std::vector<cmdinfo> pipeline;
 	cmdinfo __current;
-	std::vector<std::string>& tokens = __current.tokens;
 	
 	std::string qtbuff(""); // quote buffer
 	uint16_t quotestate = 0; // quote state
@@ -368,7 +367,7 @@ std::vector<cmdinfo> parse(std::string readline)
 			else if (fetch=='\'') quotestate=2;
 			else if (fetch==' ') {
 				if (!qtbuff.empty()) {
-					tokens.push_back(qtbuff);
+					__current.tokens.push_back(qtbuff);
 					qtbuff.clear();
 				}
 			}
@@ -381,21 +380,23 @@ std::vector<cmdinfo> parse(std::string readline)
 							fdop = op;
 							break;
 						}
-				__current.filedesc.opexpr = fdop;
 
-				if (!qtbuff.empty()) {
-					tokens.push_back(qtbuff);
+				// make sure to flush only after reading the whole command
+				// or it could be right before an fd operator
+				if (!fdop.empty() && !qtbuff.empty()) {
+					__current.tokens.push_back(qtbuff);
 					qtbuff.clear();
 				}
 
 				if (fdop=="|") {
 					pipeline.push_back(__current); // add to pipe
 					__current = cmdinfo(); // reinit
-					tokens = __current.tokens; // remaps
 				} else
 				if (!fdop.empty()) {
+					__current.filedesc.opexpr = fdop;
+				
 					size_t where = i + __current.filedesc.opexpr.size();
-					while (readline[where]==' ')
+					while (where < readline.size() && readline[where]==' ')
 						where++; // e.g. grep> hello| echo
 
 					std::string tofile = "";
@@ -404,7 +405,7 @@ std::vector<cmdinfo> parse(std::string readline)
 						where++; // e.g. grep >hello | echo
 					}
 
-					i = where; // update iterator
+					i = where - 1; // update iterator to nearest space
 					
 					fillfd(__current, tofile);
 				}
@@ -415,7 +416,7 @@ std::vector<cmdinfo> parse(std::string readline)
 
 		if (quotestate==1) {
 			if (fetch=='\"') {
-				tokens.push_back(qtbuff);
+				__current.tokens.push_back(qtbuff);
 				qtbuff.clear();
 				quotestate = 0;
 			}
@@ -462,7 +463,7 @@ std::vector<cmdinfo> parse(std::string readline)
 
 		if (quotestate==2) {
 			if (fetch=='\'') {
-				tokens.push_back(qtbuff);
+				__current.tokens.push_back(qtbuff);
 				qtbuff.clear();
 				quotestate = 0;
 			}
@@ -475,7 +476,9 @@ std::vector<cmdinfo> parse(std::string readline)
 		}
 	}
 	if (!qtbuff.empty())
-		tokens.push_back(qtbuff);
+		__current.tokens.push_back(qtbuff);
+	if (!__current.tokens.empty())
+		pipeline.push_back(__current);
 	
 	if (quotestate!=0) {
 		std::cerr << "Imcomplete command due to unmatched quote.\n";
@@ -569,7 +572,9 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 		exampleprompt += " [";
 		for (const int& currentexit : exitcause)
 			exampleprompt += std::to_string(currentexit) + "|";
-		exampleprompt.erase(exampleprompt.end());
+
+		if (!exampleprompt.empty()) // make sure to have anything to delete
+			exampleprompt.pop_back();
 		exampleprompt += "]";
 	}
 	exampleprompt += " % ";
@@ -641,11 +646,12 @@ int main()
 		// used to know when to fetch and when to push
 		int infile_fd = STDIN_FILENO; // there's nothing yet, default to stdin to read from first command
 
-		if (pipeline.size() == 1)  { // don't mix it up with pipes!
+		if (pipeline.size() == 1)  { // is intended only for shell commands
 			fdinfo &filedesc = pipeline[0].filedesc;
-
 			int shellcmd_result = shellcmd(pipeline[0].tokens);
-			exitcause.push_back(shellcmd_result);
+
+			if (shellcmd_result == -1) // if not, skip
+				goto skip_to_forking;
 
 			// preserve before its definition change
 			int procstdin = dup(STDIN_FILENO);
@@ -660,8 +666,7 @@ int main()
 
 				if (infd < 0) {
 					std::cerr << "fatal error, cannot read from file\n";
-					redirection_failed = true;
-					continue; // immediate skip
+					redirection_failed = true; // immediate skip
 				}
 			}
 
@@ -669,38 +674,41 @@ int main()
 			if (!redirection_failed && !filedesc.stdoutf.empty()) {
 				int fflag = O_WRONLY | O_CREAT;
 				if (filedesc.append_stdout)
-					fflag |= O_TRUNC;
-				else
 					fflag |= O_APPEND;
-				int infd = open(filedesc.stdoutf.c_str(), fflag, 0644);
+				else
+					fflag |= O_TRUNC;
+				int outfd = open(filedesc.stdoutf.c_str(), fflag, 0644);
 
-				if (infd < 0) {
+				if (outfd < 0) {
 					std::cerr << "fatal error, cannot write stdout to file\n";
 					redirection_failed = true;
-					continue;
 				}
 
-				dup2(infd, STDOUT_FILENO);
-				close(infd);
+				dup2(outfd, STDOUT_FILENO);
+				close(outfd);
 			}
 			
 			if (!redirection_failed && !filedesc.stderrf.empty()) {
 				int fflag = O_WRONLY | O_CREAT;
 				if (filedesc.append_stderr)
-					fflag |= O_TRUNC;
-				else
 					fflag |= O_APPEND;
-				int infd = open(filedesc.stdoutf.c_str(), fflag, 0644);
+				else
+					fflag |= O_TRUNC;
+				int errfd = open(filedesc.stderrf.c_str(), fflag, 0644);
 
-				if (infd < 0) {
+				if (errfd < 0) {
 					std::cerr << "fatal error, cannot write stderr to file\n";
 					redirection_failed = true;
-					continue;
 				}
 
-				dup2(infd, STDOUT_FILENO);
-				close(infd);
+				dup2(errfd, STDERR_FILENO);
+				close(errfd);
 			}
+
+			if (redirection_failed)
+				exitcause.push_back(1);
+			else
+				exitcause.push_back(shellcmd_result);
 
 			// in the parent process, we must be sensitive about its I/O ends
 			dup2(procstdin, STDIN_FILENO);
@@ -713,6 +721,7 @@ int main()
 			continue; // skip the pipe since this isn't
 		}
 
+skip_to_forking:
 		for (size_t i=0; i<pipeline.size(); i++) {
 			// fetch information and init first
 			std::vector<std::string> &tokens = pipeline[i].tokens;
@@ -722,7 +731,7 @@ int main()
 
 			std::vector<char*> argvect; // make argv for execvp
 			for (const std::string& have : tokens)
-				argvect.push_back(const_cast<char*>(&have[0]));
+				argvect.push_back(const_cast<char*>(have.c_str()));
 			argvect.push_back(nullptr);
 
 			if (!at_last)
@@ -760,7 +769,7 @@ int main()
 				// we do this because we fill out concurrently
 				if (!filedesc.stdinf.empty()) {
 					int fflag = O_RDONLY; // file permission flags
-					int infd = open(filedesc.stdinf.c_str(), fflag); // fd info
+					int infd = open(filedesc.stdinf.c_str(), fflag); // open file
 
 					if (infd < 0) { // it failed
 						std::cerr << "fatal error, cannot read from file\n";
