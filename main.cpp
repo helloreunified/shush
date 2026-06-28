@@ -305,6 +305,10 @@ int shellcmd(const std::vector<std::string>& tokens)
 		return 0;
 	}
 
+	if (tokens[0]=="exit" || tokens[0]=="quit") {
+		exit(0);
+	}
+
 	if (tokens[0]=="version" || tokens[0]=="snapshot") {
 		std::cout << "segmentated hirachically untitled shell\n";
 		std::cout << "snapshot " << snapshot << '\n';
