@@ -31,13 +31,13 @@ SOFTWARE.
 #include <fstream>
 #include <sys/wait.h>
 #include <fcntl.h>
-#include "linenoise.h"
+#include "../lib/replxx/headers/replxx.hxx"
 
 std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = 5.02;
+auto snapshot = "6.0-dev+0";
 
 struct {
 	std::string home, user, hostname;
@@ -617,7 +617,7 @@ int main()
 {
 	prepcfg(); fetchenv(); loadalias();
 	std::vector<int> exitcause;
-	linenoiseHistorySetMaxLen(39); // 
+	/* history maximum length of 39 */
 
 	while (true)
 	{
@@ -626,7 +626,7 @@ int main()
 		exitcause.clear();
 
 		// request reference to input
-		char* inputbuffer = linenoise(reqprompt.c_str());
+		char* inputbuffer = nullptr;
 
 		// you used ^D
 		if (inputbuffer==nullptr)
@@ -638,8 +638,8 @@ int main()
 		free(inputbuffer);
 
 		// handle input
-		if (readline.empty()) continue; // noise pollution
-		linenoiseHistoryAdd(readline.c_str()); // add it
+		if (readline.empty()) continue;
+		/* add readline to history */
 
 		// resolve input
 		std::vector<cmdinfo> pipeline = parse(readline);
