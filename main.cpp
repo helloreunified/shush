@@ -37,7 +37,7 @@ std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = 5; // changes for every release
+auto snapshot = 5.02;
 
 struct {
 	std::string home, user, hostname;
@@ -549,6 +549,7 @@ void prepcfg()
 }
 
 bool notify_no_prompt_once = false;
+bool notify_prompt_exceed_limit = false;
 std::string readprompt(std::vector<int> exitcause) // this varies
 {
 	// predefine some necessity
@@ -592,13 +593,10 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 		}
 		return exampleprompt;
 	} else {
-		std::cout << "Note that any prompt over 512 characters in raw will be cut off in snapshot 6 or later.\n";	
-		/*
-			{user} == username
-			{host} == hostname
-			{cwd} == current working directory
-			ASCII color sequence == it is what it is
-		*/
+		if (!notify_prompt_exceed_limit) {
+			std::cout << "Note that any prompt over 512 characters in raw will be cut off in snapshot 6 or later.\n";
+			notify_prompt_exceed_limit = true;
+		}
 
 		size_t posfind = 0;
 		while ((posfind=userprompt.find("{user}"))!=std::string::npos)		
@@ -652,6 +650,20 @@ int main()
 
 		if (pipeline.size() == 1)  { // is intended only for shell commands
 			fdinfo &filedesc = pipeline[0].filedesc;
+
+			{ // check if it's actually a shell command
+				bool is_shellcmd = false;
+				if (pipeline[0].tokens[0].empty()) continue;
+				
+				for (size_t i=0; i < size(shellutils); i++)
+					if (shellutils[i] == pipeline[0].tokens[0]) {
+						is_shellcmd = true;
+						break;
+					}
+					
+				if (!is_shellcmd) goto skip_to_forking;
+			}
+			
 			int shellcmd_result = shellcmd(pipeline[0].tokens);
 
 			if (shellcmd_result == -1) // if not, skip
@@ -672,6 +684,9 @@ int main()
 					std::cerr << "fatal error, cannot read from file\n";
 					redirection_failed = true; // immediate skip
 				}
+
+				dup2(infd, STDIN_FILENO);
+				close(infd);
 			}
 
 			// this exists so the mental model is predictable
@@ -791,15 +806,15 @@ skip_to_forking:
 						fflag |= O_APPEND; // append
 					else
 						fflag |= O_TRUNC; // overwrite
-					int infd = open(filedesc.stdoutf.c_str(), fflag, 0644);
+					int outfd = open(filedesc.stdoutf.c_str(), fflag, 0644);
 
-					if (infd < 0) {
+					if (outfd < 0) {
 						std::cerr << "fatal error, cannot write stdout to file\n";
 						_exit(1);
 					}
 
-					dup2(infd, STDOUT_FILENO);
-					close(infd);
+					dup2(outfd, STDOUT_FILENO);
+					close(outfd);
 				}
 
 				if (!filedesc.stderrf.empty()) {
@@ -808,15 +823,15 @@ skip_to_forking:
 						fflag |= O_APPEND;
 					else
 						fflag |= O_TRUNC;
-					int infd = open(filedesc.stderrf.c_str(), fflag, 0644);
+					int errfd = open(filedesc.stderrf.c_str(), fflag, 0644);
 
-					if (infd < 0) {
+					if (errfd < 0) {
 						std::cerr << "fatal error, cannot write stderr to file\n";
 						_exit(1);
 					}
 
-					dup2(infd, STDERR_FILENO);
-					close(infd);
+					dup2(errfd, STDERR_FILENO);
+					close(errfd);
 				}
 
 				// clean handling of shell commands
@@ -869,5 +884,5 @@ skip_to_forking:
 		pidlist.clear();
 	}
 	
-	return 0; // removed decorative function, we going ball
+	return 0;
 }
