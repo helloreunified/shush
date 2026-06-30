@@ -33,11 +33,20 @@ SOFTWARE.
 #include <fcntl.h>
 #include "../lib/replxx/headers/replxx.hxx"
 
+using inputmgmt = replxx::Replxx;
+using historymgmt = replxx::Replxx::HistoryScan;
+using inputstate = replxx::Replxx::State;
+using color = replxx::Replxx::Color;
+using autofill = replxx::Replxx::Completion;
+using gethint = replxx::Replxx::hint_callback_t;
+using getcompletion = replxx::Replxx::completion_callback_t;
+using gethighlight = replxx::Replxx::highlighter_callback_t;
+
 std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.0-dev+0";
+auto snapshot = "6.0";
 
 struct {
 	std::string home, user, hostname;
@@ -548,6 +557,18 @@ void prepcfg()
 	}
 }
 
+void defineshell(inputmgmt& shellmain)
+{
+	// defaults
+	int history_size = 39;
+
+	// customize
+	/* read customization*/
+
+	// set
+	shellmain.set_max_history_size(history_size);
+}
+
 bool notify_no_prompt_once = false;
 bool notify_prompt_exceed_limit = false;
 std::string readprompt(std::vector<int> exitcause) // this varies
@@ -615,9 +636,12 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 
 int main()
 {
-	prepcfg(); fetchenv(); loadalias();
 	std::vector<int> exitcause;
-	/* history maximum length of 39 */
+	inputmgmt shellmain;
+
+	defineshell(shellmain);
+	fetchenv();
+	prepcfg();  loadalias();
 
 	while (true)
 	{
@@ -626,7 +650,7 @@ int main()
 		exitcause.clear();
 
 		// request reference to input
-		char* inputbuffer = nullptr;
+		char const* inputbuffer = shellmain.input(reqprompt);
 
 		// you used ^D
 		if (inputbuffer==nullptr)
@@ -634,12 +658,10 @@ int main()
 
 		// read input line
 		std::string readline = (std::string)inputbuffer;
-		// release memory
-		free(inputbuffer);
 
 		// handle input
 		if (readline.empty()) continue;
-		/* add readline to history */
+		shellmain.history_add(readline);
 
 		// resolve input
 		std::vector<cmdinfo> pipeline = parse(readline);
