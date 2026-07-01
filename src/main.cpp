@@ -46,7 +46,7 @@ std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.0";
+auto snapshot = "6.1-dev+0";
 
 struct {
 	std::string home, user, hostname;
@@ -356,12 +356,19 @@ void fillfd(cmdinfo& __current, const std::string& tofile) { // manipulate fd in
 	if (filedesc.opexpr=="<")
 		filedesc.stdinf = tofile;
 	if (filedesc.opexpr=="|")
-		filedesc.stdinf = tofile; // i don't think so
+		filedesc.stdinf = tofile;
 }
 
-// trying so hard for this to still compile
+bool syntax_helper(std::string readline)
+{
+	return (true && readline.empty());
+}
+
 std::vector<cmdinfo> parse(std::string readline)
 {
+	if (!syntax_helper(readline))
+		return {};
+
 	std::vector<cmdinfo> pipeline;
 	cmdinfo __current;
 	
@@ -488,24 +495,18 @@ std::vector<cmdinfo> parse(std::string readline)
 			return {};
 		}
 	}
+	
 	if (!qtbuff.empty())
 		__current.tokens.push_back(qtbuff);
 	if (!__current.tokens.empty())
 		pipeline.push_back(__current);
-	
-	if (quotestate!=0) {
-		std::cerr << "Imcomplete command due to unmatched quote.\n";
-		return {};
-	}
 	
 	return pipeline;
 }
 
 std::string expandDir(std::string dir)
 {
-	if (dir.empty()) return dir;
-	if (dir[0]=='~')
-		return shellenv.home + dir.substr(1);
+	if (dir[0]=='~') return shellenv.home + dir.substr(1);
 	return dir;
 }
 
