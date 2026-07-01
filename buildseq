@@ -1,13 +1,24 @@
 #!/bin/bash
 
-echo "Please make sure you're at the root directory of the project."
-read -p "Are you sure you want to proceed? (y/N): " response
+echo "Hello! This is a script to build this program and its libraries. Please follow the instructions below."
+echo "Before you start, you want to make sure you're at the root directory of the project."
+echo "This script will literally not care if any of these subscripts fail, please be certain."
 
-if [[ "$response" =~ ^[yY](es)?$ ]]; then
-    echo "Building binary with libreplxx.a, please wait..."
-  	g++ -std=c++17 src/main.cpp -Ilib/replxx/headers -Lbin/ -lreplxx -o shush
-  	echo "Please see g++ messages if there are any."
-else
-    echo "Requested cancellation, exiting"
+read -p "Are you sure that you want to use this script? (y/N): " responseA
+if [[ ! "$responseA" =~ ^[yY](es)?$ ]]; then
+    echo "Requested cancellation, exiting..."
     exit 1
 fi
+
+read -p "Do you want to (re)build static libraries? (y/N): " responseB
+if [[ "$responseB" =~ ^[yY](es)?$ ]]; then
+   	bash ./mklib
+fi
+
+read -p "Do you want to (re)build the program? (y/N): " responseC
+if [[ "$responseC" =~ ^[yY](es)?$ ]]; then
+   	bash ./mkbin
+fi
+
+echo "The task is done, you may now exit..."
+exit 0
