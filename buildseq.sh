@@ -12,12 +12,12 @@ fi
 
 read -p "Do you want to (re)build static libraries? (y/N): " responseB
 if [[ "$responseB" =~ ^[yY](es)?$ ]]; then
-   	bash ./mklib
+   	bash ./mklib.sh
 fi
 
 read -p "Do you want to (re)build the program? (y/N): " responseC
 if [[ "$responseC" =~ ^[yY](es)?$ ]]; then
-   	bash ./mkbin
+   	bash ./mkbin.sh
 fi
 
 echo "The task is done, you may now exit..."
