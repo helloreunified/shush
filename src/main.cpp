@@ -46,7 +46,7 @@ std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.1-dev+0";
+auto snapshot = "6.1-dev+1";
 
 struct {
 	std::string home, user, hostname;
@@ -361,7 +361,49 @@ void fillfd(cmdinfo& __current, const std::string& tofile) { // manipulate fd in
 
 bool syntax_helper(std::string readline)
 {
-	return (true && readline.empty());
+	uint16_t quotestate = 0;
+	for (size_t i=0; i<readline.size(); i++)
+	{
+		char fetch = readline[i];
+
+		if (fetch=='#' && quotestate==0)
+			break;
+
+		if (quotestate==0)
+			if (fetch=='\"') quotestate=1;
+			else if (fetch=='\'') quotestate=2;
+
+		if (quotestate==1)
+			if (fetch=='\"') quotestate=0;
+
+		if (quotestate==2)
+			if (fetch=='\'') quotestate=0;
+	}
+	if (quotestate != 0) return false;
+
+	for (size_t i = 0; i <= readline.size(); i++) {
+		std::string fdop = "";
+		for (const std::string& op : fdesc)
+			if (i + op.size() <= readline.size())
+				if (readline.compare(i, op.size(), op)==0) {
+					fdop = op;
+					break;
+				}
+
+		if (fdop.empty()) continue;
+
+		bool specified_after = false;
+		for (size_t j = i + fdop.size() - 1; j < readline.size(); j++)
+			if (readline[j] != ' ') {
+				specified_after = true;
+				break;
+			}
+
+		if (!specified_after)
+			return false;
+	}
+
+	return true;
 }
 
 std::vector<cmdinfo> parse(std::string readline)
@@ -649,7 +691,6 @@ int main()
 		// request defined prompt and scrap old exit codes
 		std::string reqprompt = readprompt(exitcause);
 		exitcause.clear();
-
 		// request reference to input
 		char const* inputbuffer = shellmain.input(reqprompt);
 
@@ -666,6 +707,8 @@ int main()
 
 		// resolve input
 		std::vector<cmdinfo> pipeline = parse(readline);
+		if (pipeline.empty()) continue;
+		
 		// run concurrently so it doesn't crash the stack
 		std::vector<pid_t> pidlist = {};
 		// used to know when to fetch and when to push
