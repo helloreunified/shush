@@ -42,11 +42,11 @@ using gethint = replxx::Replxx::hint_callback_t;
 using getcompletion = replxx::Replxx::completion_callback_t;
 using gethighlight = replxx::Replxx::highlighter_callback_t;
 
-std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
+std::string shellutils[] = {"exit", "quit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.1";
+auto snapshot = "6.11";
 
 struct {
 	std::string home, user, hostname;
@@ -369,6 +369,32 @@ bool syntax_helper(std::string readline)
 		if (fetch=='#' && quotestate==0)
 			break;
 
+		if ((quotestate == 0 || quotestate == 1) && fetch=='$') {
+			size_t where = i+1;
+			bool curlybraces = false;
+			if (readline[where]=='{') {
+				curlybraces = true;
+				where++;
+			}
+			
+			std::string getvariablename("");
+			while (readline[where]=='_' ||
+				(readline[where]>='0' && readline[where]<='9') ||
+				(readline[where]>='a' && readline[where]<='z') ||
+				(readline[where]>='A' && readline[where]<='Z') ) {
+				getvariablename += readline[where];
+				where++;
+			}
+
+			if (curlybraces) {
+				if (readline[where]!='}') {
+					std::cerr << "Missing a curly brace!\n";
+					return false;
+				}
+				where++; // if it's correct syntax
+			}
+		}
+
 		if (quotestate==0) {
 			if (fetch=='\"') quotestate=1;
 			else if (fetch=='\'') quotestate=2;
@@ -376,35 +402,8 @@ bool syntax_helper(std::string readline)
 		}
 
 		if (quotestate==1) {
-			if (fetch=='\"') {
+			if (fetch=='\"')
 				quotestate=0;
-			} else 
-			if (fetch=='$') {
-				size_t where = i+1;
-				bool curlybraces = false;
-				if (readline[where]=='{') {
-					curlybraces = true;
-					where++;
-				}
-				
-				std::string getvariablename("");
-				while (readline[where]=='_' ||
-					(readline[where]>='0' && readline[where]<='9') ||
-					(readline[where]>='a' && readline[where]<='z') ||
-					(readline[where]>='A' && readline[where]<='Z') ) {
-					getvariablename += readline[where];
-					where++;
-				}
-
-				if (curlybraces) {
-					if (readline[where]!='}') {
-						std::cerr << "Missing a curly brace!\n";
-						return false;
-					}
-					where++; // if it's correct syntax
-				}
-			}
-
 			continue;
 		}
 
@@ -447,8 +446,6 @@ bool syntax_helper(std::string readline)
 			return false;
 		}
 	}
-
-	
 
 	return true;
 }
