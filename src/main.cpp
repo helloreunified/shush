@@ -46,7 +46,7 @@ std::string shellutils[] = {"exit", "cd", "help", "pwd", "exec", "type", "export
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.1-dev+1";
+auto snapshot = "6.1-dev+2";
 
 struct {
 	std::string home, user, hostname;
@@ -183,7 +183,7 @@ int shellcmd(const std::vector<std::string>& tokens)
 			std::cerr << "Current directory may not exist anymore, or is inaccessible.\n";
 			return 4;
 		}
-	} // I've only implemented pwd because I was lazy
+	}
 
 	if (tokens[0]=="exec")
 		if (tokens.size()<2) {
@@ -369,17 +369,54 @@ bool syntax_helper(std::string readline)
 		if (fetch=='#' && quotestate==0)
 			break;
 
-		if (quotestate==0)
+		if (quotestate==0) {
 			if (fetch=='\"') quotestate=1;
 			else if (fetch=='\'') quotestate=2;
+			continue;
+		}
 
-		if (quotestate==1)
+		if (quotestate==1) {
 			if (fetch=='\"') quotestate=0;
+			continue;
+		} else if (fetch=='$') {
+			size_t where = i+1;
+			bool curlybraces = false;
+			if (readline[where]=='{') {
+				curlybraces = true;
+				where++;
+			}
+			
+			std::string getvariablename("");
+			while (readline[where]=='_' ||
+				(readline[where]>='0' && readline[where]<='9') ||
+				(readline[where]>='a' && readline[where]<='z') ||
+				(readline[where]>='A' && readline[where]<='Z') ) {
+				getvariablename += readline[where];
+				where++;
+			}
 
-		if (quotestate==2)
+			if (curlybraces) {
+				if (readline[where]!='}') {
+					std::cerr << "Missing a curly brace!\n";
+					return false;
+				}
+				where++; // if it's correct syntax
+			}
+		}
+
+		if (quotestate==2) {
 			if (fetch=='\'') quotestate=0;
+			continue;
+		}
 	}
-	if (quotestate != 0) return false;
+	if (quotestate != 0) {
+		std::cerr << "Invalid quoting in command, one quote that hasn't been closed is ";
+		if (quotestate==1) std::cerr << '\"';
+		else std::cerr << '\'';
+		
+		std::cerr << '\n';
+		return false;
+	}
 
 	for (size_t i = 0; i <= readline.size(); i++) {
 		std::string fdop = "";
@@ -393,15 +430,21 @@ bool syntax_helper(std::string readline)
 		if (fdop.empty()) continue;
 
 		bool specified_after = false;
-		for (size_t j = i + fdop.size() - 1; j < readline.size(); j++)
+		for (size_t j = i + fdop.size(); j < readline.size(); j++) // check past the operator
 			if (readline[j] != ' ') {
 				specified_after = true;
 				break;
 			}
 
-		if (!specified_after)
+		if (!specified_after) {
+			if (fdop=="|") std::cerr << "It's really funny that there's nothing after the last pipe\n";
+			else std::cerr << "So where am I supposed to redirect input/output to?\n";
+
 			return false;
+		}
 	}
+
+	
 
 	return true;
 }
@@ -499,13 +542,8 @@ std::vector<cmdinfo> parse(std::string readline)
 					where++;
 				}
 
-				if (curlybraces) {
-					if (readline[where]!='}') {
-						std::cerr << "Imcomplete syntax. A curly brace is what you all needed to break a command like this.\n";
-						return {};
-					}
-					where++; // if it's correct syntax
-				}
+				if (curlybraces)
+					where++;
 
 				if (getvariablename=="")
 					qtbuff += readline[i];
