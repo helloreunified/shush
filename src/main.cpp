@@ -46,7 +46,7 @@ std::string shellutils[] = {"exit", "quit", "cd", "help", "pwd", "exec", "type",
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.11";
+auto snapshot = "6.12";
 
 struct {
 	std::string home, user, hostname;
@@ -169,7 +169,7 @@ int shellcmd(const std::vector<std::string>& tokens)
 		}
 	}
 
-	if (tokens[0]=="help") { // will include help on a specific subject using second parameter
+	if (tokens[0]=="help") {
 		std::cout << "Will be here!\n";
 		return 0;
 	}
@@ -314,7 +314,8 @@ int shellcmd(const std::vector<std::string>& tokens)
 		return 0;
 	}
 
-	if (tokens[0]=="exit" || tokens[0]=="quit") {
+	if (tokens[0]=="exit" || tokens[0]=="quit" || tokens[0]=="logout") {
+		if (tokens[0]=="logout") std::cout << "logout\n";
 		exit(0);
 	}
 
@@ -639,18 +640,6 @@ void prepcfg()
 	}
 }
 
-void defineshell(inputmgmt& shellmain)
-{
-	// defaults
-	int history_size = 39;
-
-	// customize
-	/* read customization*/
-
-	// set
-	shellmain.set_max_history_size(history_size);
-}
-
 bool notify_no_prompt_once = false;
 bool notify_prompt_exceed_limit = false;
 std::string readprompt(std::vector<int> exitcause) // this varies
@@ -696,24 +685,112 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 		}
 		return exampleprompt;
 	} else {
-		if (!notify_prompt_exceed_limit) {
-			std::cout << "Note that any prompt over 512 characters in raw will be cut off in snapshot 6 or later.\n";
+		if (userprompt.size() > 512 && !notify_prompt_exceed_limit) {
+			std::cout << "This prompt is over 512 characters, it will be cut down to 512 characters.\n";
 			notify_prompt_exceed_limit = true;
 		}
 
+		std::string usableuserprompt = userprompt.substr(0, 512);
+
 		size_t posfind = 0;
-		while ((posfind=userprompt.find("{user}"))!=std::string::npos)		
-			userprompt.replace(posfind, 6, shellenv.user);
-		while ((posfind=userprompt.find("{host}"))!=std::string::npos)
-			userprompt.replace(posfind, 6, shellenv.hostname);
-		while ((posfind=userprompt.find("{cwd}"))!=std::string::npos)
-			userprompt.replace(posfind, 5, cwd);
+		while ((posfind=usableuserprompt.find("{user}"))!=std::string::npos)		
+			usableuserprompt.replace(posfind, 6, shellenv.user);
+		while ((posfind=usableuserprompt.find("{host}"))!=std::string::npos)
+			usableuserprompt.replace(posfind, 6, shellenv.hostname);
+		while ((posfind=usableuserprompt.find("{cwd}"))!=std::string::npos)
+			usableuserprompt.replace(posfind, 5, cwd);
 
-		while ((posfind=userprompt.find("\\033"))!=std::string::npos)
-			userprompt.replace(posfind, 4, "\033");	
+		while ((posfind=usableuserprompt.find("\\033"))!=std::string::npos)
+			usableuserprompt.replace(posfind, 4, "\033");	
 
-		return userprompt;
+		return usableuserprompt;
 	}
+}
+
+// colorize the buffer by looking at the input and modify colors table
+void input_highlighter(std::string const& input, inputmgmt::colors_t& colors)
+{
+	// there is nothing at all
+	if (input.empty()) return;
+
+	// reinitialize
+	for (size_t i = 0; i < colors.size(); i++)
+		colors[i] = color::DEFAULT;
+
+	// move i to the first usable pos
+	size_t i = 0;
+	while (i < input.size() && input[i] == ' ')
+		i++;
+
+	// normalize executable name
+	while (i < input.size() && input[i] != ' ') {
+		colors[i] = color::WHITE;
+		i++;
+	}
+
+	// colored quoting
+	int quotestate = 0; bool comment_notation = false;
+	while (i < colors.size())
+	{
+		if (comment_notation) {
+			colors[i] = color::BROWN;
+			i++;
+			continue;
+		}
+
+		if (input[i] == '#' && quotestate == 0) {
+			colors[i] = color::BROWN;
+			i++; comment_notation = true;
+			continue;
+		}
+
+		// will add $VAR and ${VAR} coloring support!
+		// will add file descriptor coloring support!
+
+		if (quotestate==0) {
+			colors[i] = color::CYAN;
+			if (input[i] == '\'') {
+				quotestate = 2;
+				colors[i] = color::BROWN;
+			}
+			else if (input[i] == '\"') {
+				quotestate = 1;
+				colors[i] = color::BROWN;
+			}
+
+			i++;
+			continue;
+		}
+
+		if (quotestate==1) {
+			colors[i] = color::BROWN;
+			if (input[i] == '\"') quotestate = 0;
+
+			i++;
+			continue;
+		}
+
+		if (quotestate==2) {
+			colors[i] = color::BROWN;
+			if (input[i] == '\'') quotestate = 0;
+
+			i++;
+			continue;
+		}
+	}
+}
+
+void defineshell(inputmgmt& shellmain)
+{
+	// defaults
+	int history_size = 39;
+
+	// customize
+	/* read customization*/
+
+	// set
+	shellmain.set_max_history_size(history_size);
+	shellmain.set_highlighter_callback(input_highlighter);
 }
 
 int main()

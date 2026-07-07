@@ -11,11 +11,15 @@ If you wanted to build this program yourself, please do the following:<br>
 2. (Extract if needed) Go to the root level of the repository and run `./buildseq`
 3. A binary will pop up/be overwritten in the source folder under the name "shush", that is the result!
 
-If you wanted to download a specific snapshot/commit of this program/repository, please do the following:<br>
+If you wanted to download a specific commit of this program/repository, please do the following:<br>
 1. Go to commits in its main branch.
-2. Select your desired version, starting with "snapshot #". (Anything else is not related to the main shell code)
+2. Select your desired commit.
 3. Click on "Browse source"
- 4. Donwload the source file in .zip and extract it.
+4. Download the source file in .zip and extract it.
+
+If you wanted to download a specific snapshot of this program, please do the following:<br>
+1. Go to the releases tab;
+2. Download the attached source code under each snapshot.
 
 If you wanted to download the precompiled binary at any snapshot, please do the following:<br>
 1. Get that specific snapshot of this program using instructions above,
@@ -32,10 +36,33 @@ If you wanted to download the precompiled binary at any snapshot, please do the 
 # NOT features
 `shush` does NOT support the following functions:<br>
 - scripts<br>
-- jobs control (maybe...? later)<br>
-- maybe some more<br>
+
+# Milestones;
+- snapshot 1, 2, 3: basic prototype<br>
+- snapshot 4: line editing update<br>
+> 4.0: change line exiting engine to `https://github.com/antirez/linenoise`<br>
+> 4.1: support for running external programs without dependency and command history<br>
+> 4.2: partial prompt customization<br>
+- snapshot 5: file descriptor update<br>
+- snapshot 6: line editing update <br>
+> 6.0: change line editing engine to `https://github.com/AmokHuginnsson/replxx`<br>
+> 6.1: syntax helper<br>
+> 6.2: tab completion<br>
+> 6.3: history functions<br>
+- snapshot 7: customization plus interactive outputs<br>
+> 7.0: universal variables and globbing<br>
+> 7.1: prompting and prompt generator<br>
+> 7.2: settings changer built-in<br>
+> 7.3: abrupt abbreviations and character width<br>
+> 7.4: keybinds
+> 7.5: pager 
+> 7.6: partial developer integeration (e.g. git and venv)
+> 7.7. jobs control
+> 7.8: more interactive and useful `help` function
+- snapshot 8: finalizing
+> 8.0: package its config into its own binary, added some toggles
+> 8.1: add support for self-brought string configs
+> 8.11: code refactoring and quick bug fixes
 
 # Notes
 Potentially cancerous code.<br>
-
-
