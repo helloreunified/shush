@@ -3,6 +3,9 @@
 Instead of having a shell with too much customizations you may not need, or maybe heavy, or it has questionable design,<br>
 `shush` is the shell that is both minimal, portable and also lightweight, perfect for use across filesystems and systems!<br>
 
+# Notice<br>
+Please go to https://github.com/helloreunified/shush instead.<br>
+
 # Installation
 The current version of `shush` sits at snapshot 6, get it in Releases section!<br>
 If you wanted to build this program yourself, please do the following:<br>
