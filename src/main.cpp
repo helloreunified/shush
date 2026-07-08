@@ -46,7 +46,7 @@ std::string shellutils[] = {"exit", "quit", "cd", "help", "pwd", "exec", "type",
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.12";
+auto snapshot = "6.13";
 
 struct {
 	std::string home, user, hostname;
@@ -469,6 +469,39 @@ std::vector<cmdinfo> parse(std::string readline)
 		if (fetch=='#' && quotestate==0)
 			break;
 
+		if ((quotestate == 1 || quotestate == 0) && fetch=='$') {
+			size_t where = i+1;
+			bool curlybraces = false;
+			if (readline[where]=='{') {
+				curlybraces = true;
+				where++;
+			}
+			
+			std::string getvariablename("");
+			while (readline[where]=='_' ||
+				(readline[where]>='0' && readline[where]<='9') ||
+				(readline[where]>='a' && readline[where]<='z') ||
+				(readline[where]>='A' && readline[where]<='Z') ) {
+				getvariablename += readline[where];
+				where++;
+			}
+
+			if (curlybraces)
+				where++;
+
+			if (getvariablename=="")
+				qtbuff += readline[i];
+			else {
+				std::pair<std::string, bool> getresult = rtvarexp(getvariablename);
+				if (getresult.second) {
+					std::cerr << "Invalid variable name: " << getvariablename << '\n';
+					return {};
+				}
+				qtbuff += getresult.first;
+				i = where-1;
+			}
+		} else
+
 		if (quotestate==0) {
 			if (fetch=='\"') quotestate=1;
 			else if (fetch=='\'') quotestate=2;
@@ -588,7 +621,7 @@ std::vector<cmdinfo> parse(std::string readline)
 
 std::string expandDir(std::string dir)
 {
-	if (dir[0]=='~') return shellenv.home + dir.substr(1);
+	if (dir[0]=='~') return shellenv.home + dir.substr();
 	return dir;
 }
 
@@ -708,7 +741,7 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 }
 
 // colorize the buffer by looking at the input and modify colors table
-void input_highlighter(std::string const& input, inputmgmt::colors_t& colors)
+void syntax_highlighter(std::string const& input, inputmgmt::colors_t& colors)
 {
 	// there is nothing at all
 	if (input.empty()) return;
@@ -723,7 +756,8 @@ void input_highlighter(std::string const& input, inputmgmt::colors_t& colors)
 		i++;
 
 	// normalize executable name
-	while (i < input.size() && input[i] != ' ') {
+	while (i < input.size() && input[i] != ' ' && input[i] != '#') {
+		
 		colors[i] = color::WHITE;
 		i++;
 	}
@@ -733,19 +767,47 @@ void input_highlighter(std::string const& input, inputmgmt::colors_t& colors)
 	while (i < colors.size())
 	{
 		if (comment_notation) {
-			colors[i] = color::BROWN;
+			colors[i] = color::MAGENTA;
 			i++;
 			continue;
 		}
 
 		if (input[i] == '#' && quotestate == 0) {
-			colors[i] = color::BROWN;
+			colors[i] = color::MAGENTA;
 			i++; comment_notation = true;
 			continue;
 		}
 
-		// will add $VAR and ${VAR} coloring support!
 		// will add file descriptor coloring support!
+
+		if ((quotestate == 1 || quotestate == 0) && input[i] == '$') {
+			size_t where = i + 1; // starts counting
+			bool encased = false; // is in {} or not
+			colors[i] = color::BRIGHTGREEN;
+
+			if (input[where] == '{') {
+				colors[where] = color::BRIGHTGREEN;
+				where++;
+			}
+
+			std::string getvariable = "";
+			while (where < input.size() && (
+				(input[where] >= '0' && input[where] <= '9') ||
+				(input[where] >= 'a' && input[where] <= 'z') ||
+				(input[where] >= 'A' && input[where] <= 'Z') )) {
+					getvariable += input[i];
+					colors[where] = color::BRIGHTGREEN;
+					where++;
+				}
+
+			if (encased) {
+				colors[where] = color::BRIGHTGREEN;
+				where++;
+			}
+
+			i = where;
+			continue;
+		}
 
 		if (quotestate==0) {
 			colors[i] = color::CYAN;
@@ -790,7 +852,7 @@ void defineshell(inputmgmt& shellmain)
 
 	// set
 	shellmain.set_max_history_size(history_size);
-	shellmain.set_highlighter_callback(input_highlighter);
+	shellmain.set_highlighter_callback(syntax_highlighter);
 }
 
 int main()
