@@ -44,9 +44,29 @@ using gethighlight = replxx::Replxx::highlighter_callback_t;
 
 std::string shellutils[] = {"exit", "quit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
+std::unordered_map<std::string, color> predef_colors = {
+	{"black", color::BLACK},
+	{"red", color::RED},
+	{"green", color::GREEN},
+	{"brown", color::BROWN},
+	{"blue", color::BLUE},
+	{"magenta", color::MAGENTA},
+	{"cyan", color::CYAN},
+	{"stone", color::LIGHTGRAY},
+	{"gray", color::GRAY},
+	{"alert", color::BRIGHTRED},
+	{"grass", color::BRIGHTGREEN},
+	{"yellow", color::YELLOW},
+	{"miku", color::BRIGHTBLUE},
+	{"mizuki", color::BRIGHTMAGENTA},
+	{"sky", color::BRIGHTCYAN},
+	{"white", color::WHITE},
+	{"default", color::DEFAULT}
+};
+
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.13";
+auto snapshot = "6.14";
 
 struct {
 	std::string home, user, hostname;
@@ -83,11 +103,28 @@ void loadalias()
 			}
 		}
 		file.close();
-	} else
-		std::cerr << "Alias table file not found. All alias were not loaded.\n";
+	} else {
+		where = std::filesystem::current_path();
+		std::ifstream file(where.string());
+		if (file.is_open()) {
+			std::string buffer;
+			while (getline(file, buffer)) {
+				size_t delimiter = buffer.find("=");
+				if (delimiter==std::string::npos)
+					std::cerr << "Malformed alias found. Will not include it.\n";
+				else {
+					std::string name = buffer.substr(0, delimiter);
+					std::string val = buffer.substr(delimiter+1);
+					shellenv.aliastable[name] = val;
+				}
+			}
+			file.close();
+		} else
+			std::cerr << "Alias table file not found. All alias were not loaded.\n";
+	}
 }
 
-bool writealias()
+bool writealias() // currently unused
 {
 	std::filesystem::path where = std::filesystem::path(shellenv.home) / ".shushcfg" / "alias.shush";
 	std::ofstream file(where.string());
@@ -96,9 +133,18 @@ bool writealias()
 			file << getalias.first << "=" << getalias.second << "\n";
 		file.close(); return true;
 	} else {
-		std::cerr << "Alias table file not found.\n";
-		return false;
+		where = std::filesystem::current_path() / ".shushcfg" / "alias.shush";
+		std::ofstream file(where.string());
+		if (file.is_open()) {
+			for (std::pair<std::string, std::string> getalias : shellenv.aliastable)
+				file << getalias.first << "=" << getalias.second << "\n";
+			file.close(); return true;
+		} else {
+			std::cerr << "Alias table file not found.\n";
+			return false;
+		}
 	}
+	return false;
 }
 
 void fetchenv()
@@ -300,13 +346,79 @@ int shellcmd(const std::vector<std::string>& tokens)
 	}
 
 	if (tokens[0]=="echo") {
-		if (tokens.size()<2)
-			std::cout << "Example help text\n";
-		else
-			for (size_t i=1; i<tokens.size(); i++)
-				std::cout << tokens[i] << " ";
-		std::cout << '\n';
-		return 0; // Will reimplement GNU echo
+		if (tokens.size()<2) {
+			std::cout << "Please specify your contents.\n";
+			return 11;
+		}
+
+		bool no_trailing_newline = false;
+		if (tokens[1]=="-n")
+			if (tokens.size()<3) {
+				std::cout << "Specify your contents or this option is misinterpreted.\n";
+				return 12;
+			} else no_trailing_newline = true;
+
+		bool retreat_escapes = false;
+		if (tokens[1]=="-e" || tokens[1]=="-E")
+			if (tokens.size()<3) {
+				std::cout << "Please fill in your contents or this option is misinterpreted.\n";
+				return 13;
+			} else {
+				if (tokens[1]=="-e") retreat_escapes = true;
+				else retreat_escapes = false;
+			}
+ // will add multiopt
+
+		for (size_t i = 1 + (no_trailing_newline || retreat_escapes); i<tokens.size(); i++) {
+			std::string fetch = tokens[i];
+
+			if (retreat_escapes) {
+				size_t pos = 0;
+				while ((pos=fetch.find("\\")) != std::string::npos) {
+					if (pos >= fetch.size() - 1) break;
+					
+					std::string getesc = fetch.substr(pos, 2);
+
+					if (getesc == "\\\\") fetch.replace(pos, 2, "\\");
+					if (getesc == "\\a") fetch.replace(pos, 2, "\a");
+					if (getesc == "\\b") fetch.replace(pos, 2, "\b");
+					if (getesc == "\\c") { fetch = fetch.substr(0, pos); break; }
+					if (getesc == "\\e") fetch.replace(pos, 2, "\x1b");
+					if (getesc == "\\f") fetch.replace(pos, 2, "\f");
+					if (getesc == "\\n") fetch.replace(pos, 2, "\n");
+					if (getesc == "\\r") fetch.replace(pos, 2, "\r");
+					if (getesc == "\\t") fetch.replace(pos, 2, "\t");
+					if (getesc == "\\v") fetch.replace(pos, 2, "\v");
+
+					if (getesc == "\\x") {
+						if (pos >= fetch.size() - 1 - 1) break;
+
+						std::string get_hex = fetch.substr(pos+2, 2);
+						int hex_value = std::stoi(get_hex, nullptr, 16); // consume all its size
+						char hex_char = static_cast<char>(hex_value);
+
+						fetch.replace(pos, 4, 1, hex_char);
+					}
+
+					if (getesc == "\\0") {
+						if (pos >= fetch.size() - 1 - 2) break;
+
+						std::string get_oct = fetch.substr(pos+2, 3);
+						int oct_value = std::stoi(get_oct, nullptr, 8);
+						char oct_char = static_cast<char>(oct_value);
+
+						fetch.replace(pos, 5, 1, oct_char);
+					}
+				}
+			}
+			
+			std::cout << fetch << " ";
+		}
+
+		if (!no_trailing_newline)
+			std::cout << '\n';
+		
+		return 0;
 	}
 
 	if (tokens[0]=="clear") {
@@ -652,21 +764,41 @@ bool isScript(std::string readline)
 	return false;
 }
 
-void prepcfg()
+void prepcfg() // under construction
 {
 	std::filesystem::path cfgpath = std::filesystem::current_path() / ".shushcfg";
-	// as a portable shell, this leaves a very inherent reminder in that
+	std::filesystem::path txtcfg = std::filesystem::current_path(); // dummy
+	std::filesystem::path aliascfg = std::filesystem::current_path(); // dummy
+	
+ // 	if (!std::filesystem::exists(cfgpath) || !std::filesystem::is_directory(cfgpath))
+ // 		std::filesystem::create_directory(cfgpath);
+ // 
+ // 	txtcfg = cfgpath / "config.shush";
+ // 	if (!std::filesystem::exists(txtcfg) || std::filesystem::is_directory(txtcfg)) {
+ // 		std::ofstream file(txtcfg);
+ // 		file.close();
+ // 	}
+ // 
+	// aliascfg = cfgpath / "alias.shush";
+ // 	if (!std::filesystem::exists(aliascfg) || std::filesystem::is_directory(aliascfg)) {
+ // 		std::ofstream file(aliascfg);
+ // 		file.close();
+ // 	}
+
+	// maybe...
+
+	cfgpath = static_cast<std::filesystem::path>(shellenv.home) / ".shushcfg";
 
 	if (!std::filesystem::exists(cfgpath) || !std::filesystem::is_directory(cfgpath))
 		std::filesystem::create_directory(cfgpath);
 
-	std::filesystem::path txtcfg = cfgpath / "config.shush";
+	txtcfg = cfgpath / "config.shush";
 	if (!std::filesystem::exists(txtcfg) || std::filesystem::is_directory(txtcfg)) {
 		std::ofstream file(txtcfg);
 		file.close();
 	}
 
-	std::filesystem::path aliascfg = cfgpath / "alias.shush";
+	aliascfg = cfgpath / "alias.shush";
 	if (!std::filesystem::exists(aliascfg) || std::filesystem::is_directory(aliascfg)) {
 		std::ofstream file(aliascfg);
 		file.close();
@@ -678,7 +810,8 @@ bool notify_prompt_exceed_limit = false;
 std::string readprompt(std::vector<int> exitcause) // this varies
 {
 	// predefine some necessity
-	std::filesystem::path txtcfg = std::filesystem::current_path() / ".shushcfg" / "config.shush";
+	// std::filesystem::path txtcfg = std::filesystem::current_path() / ".shushcfg" / "config.shush";
+	std::filesystem::path txtcfg = std::filesystem::path(shellenv.home) / ".shushcfg" / "config.shush";
 
 	std::string cwd; // current working directory
 	try { cwd = std::filesystem::current_path().string(); }
@@ -689,7 +822,7 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 	std::ifstream is(txtcfg.string());
 	if (is.is_open()) {
 		std::string fetchcfg;
-		while (getline(is, fetchcfg)) // i'm not going to play a guessing game here, this architecture will be adbandoned the moment i added fixed-size config at the end of the binary
+		while (getline(is, fetchcfg))
 			if (fetchcfg.rfind("prompt=", 0)==0) {
 				userprompt = fetchcfg.substr(7);
 				foundpromptcfg = true; break;
@@ -738,6 +871,23 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 
 		return usableuserprompt;
 	}
+}
+
+color colordef(unsigned short rgb[3], bool bold, bool underline, std::string literal)
+{
+	if (!literal.empty()) {
+		auto where = predef_colors.find(literal);
+		if (where != predef_colors.end())
+			return where->second;
+	}
+
+	rgb[1]+=1;
+	rgb[2]+=2;
+	rgb[0]+=3;
+	bold = !bold;
+	underline = !underline;
+	
+	return color::DEFAULT;
 }
 
 // colorize the buffer by looking at the input and modify colors table
@@ -862,7 +1012,7 @@ int main()
 
 	defineshell(shellmain);
 	fetchenv();
-	prepcfg();  loadalias();
+	prepcfg(); loadalias();
 
 	while (true)
 	{
