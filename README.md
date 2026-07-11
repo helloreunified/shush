@@ -66,3 +66,9 @@ If you wanted to download the precompiled binary at any snapshot, please do the 
 
 # Notes
 Potentially cancerous code.<br>
+
+# Licenses
+The core engine and code of this shell are licensed under the MIT License. It is provided completely "AS IS", without warranty of any kind. The author assumes zero liability for its use or any operational damages.<br>
+Commercial, corporate, or enterprise deployment of this software is strictly prohibited.<br>
+Built-in configuration terms, theme names, or references (specifically; "mizuki" as in "Akiyama Mizuki", "miku" as in "Hatsune Miku") are inspired by properties owned by *Colorful Palette / SEGA* and *Crypton Future Media*, respectively. These are included purely for non-commercial, fan-made hobby customization under standard fair-use and derivative work guidelines. Any commercial exploitation of these terms or assets by an enterprise is a violation of the respective rights holders' terms and is entirely the user's legal responsibility.<br>
+Forks of this software are permitted, provided they retain the original copyright notice and this limitation of liability disclaimer.<br>
