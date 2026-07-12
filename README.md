@@ -46,9 +46,10 @@ If you wanted to download the precompiled binary at any snapshot, please do the 
 - snapshot 5: file descriptor update<br>
 - snapshot 6: line editing update <br>
 > 6.0: change line editing engine to `https://github.com/AmokHuginnsson/replxx`<br>
-> 6.1: syntax helper<br>
-> 6.2: tab completion<br>
-> 6.3: history functions<br>
+> 6.1: syntax helper and (partially) highlighting<br>
+> 6.2: syntax highlighting<br>
+> 6.3: tab completion<br>
+> 6.4: history functions<br>
 - snapshot 7: customization plus interactive outputs<br>
 > 7.0: universal variables and globbing<br>
 > 7.1: prompting and prompt generator<br>
@@ -56,13 +57,13 @@ If you wanted to download the precompiled binary at any snapshot, please do the 
 > 7.3: abrupt abbreviations and character width<br>
 > 7.4: keybinds
 > 7.5: pager 
-> 7.6: partial developer integeration (e.g. git and venv)
+> 7.6: partial developer integeration (git and venv)
 > 7.7. jobs control
 > 7.8: more interactive and useful `help` function
-- snapshot 8: finalizing
-> 8.0: package its config into its own binary, added some toggles
-> 8.1: add support for self-brought string configs
-> 8.11: code refactoring and quick bug fixes
+- snapshot 8: finalizing<br>
+> 8.0: package its config into its own binary, added some toggles<br>
+> 8.1: add support for self-brought string configs<br>
+> 8.11: code refactoring and quick bug fixes<br>
 
 # Notes
 Potentially cancerous code.<br>
@@ -72,3 +73,6 @@ The core engine and code of this software are licensed under the MIT License. It
 This software is strictly prohibited for corporate or enterprise use by default for any versions of this software that are identified ass "snapshot 6.14 and up", due to the inclusion of third-party, non-commercial fan references. However, permission for enterprise use is granted if and only if all third-party referenced assets, names, configurations, and media not originally created by the primary maintainer are completely stripped out and removed from the codebase.<br>
 Built-in configuration terms, theme names, or references (specifically; "mizuki" as in "Akiyama Mizuki", "miku" as in "Hatsune Miku") are inspired by properties owned by *Colorful Palette / SEGA* and *Crypton Future Media*, respectively. These are included purely for non-commercial, fan-made hobby customization under standard fair-use and derivative work guidelines. Any commercial exploitation of these terms or assets by an enterprise is a violation of the respective rights holders' terms and is entirely the user's legal responsibility.<br>
 Forks of this software are permitted, provided they retain the original copyright notice and this limitation of liability disclaimer.<br>
+
+Forks of this software are permitted, provided they retain the original copyright notice and this limitation of liability disclaimer.<br>
+Legal notice about non-commercial, fan references included in a fork or copy of this software and permission for use in eneterprise environments may be removed when it no longer has an inclusion of these references.
