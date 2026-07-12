@@ -18,6 +18,25 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Any superseded versions of this shell are also licensed under the MIT license.
+This software is strictly prohibited for corporate or enterprise use by default
+for any versions of this software that are identified as "snapshot 6.14 and up",
+due to the inclusion of third-party, non-commercial fan references. However,
+permission for enterprise use is granted if and only if all third-party referenced
+assets, names, configurations, and media not originally created by the primary
+maintainer are completely stripped out and removed from the codebase.
+Built-in configuration terms, theme names, or references 
+(specifically; "mizuki" as in "Akiyama Mizuki", "miku" as in "Hatsune Miku") are inspired
+by properties owned by Colorful Palette / SEGA and Crypton Future Media, respectively.
+These are included purely for non-commercial, fan-made hobby customization under standard
+fair-use and derivative work guidelines. Any commercial exploitation of these terms or
+assets by an enterprise is a violation of the respective
+rights holders' terms and is entirely the user's legal responsibility.
+Forks of this software are permitted, provided they retain the original copyright notice
+and this limitation of liability disclaimer. Legal notice about non-commercial, fan references included
+in this software and permission for use in eneterprise environments 
+may be removed when this software no longer has an inclusion of these references.
 */
 
 #include <iostream>
@@ -66,7 +85,7 @@ std::unordered_map<std::string, color> predef_colors = {
 
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.15";
+auto snapshot = "6.16";
 
 struct {
 	std::string home, user, hostname;
@@ -101,6 +120,8 @@ void loadalias()
 		
 			std::string buffer;
 			while (getline(file, buffer)) {
+				if (buffer.empty()) continue;
+			
 				size_t delimiter = buffer.find("=");
 				if (delimiter==std::string::npos || delimiter==0)
 					std::cerr << "A malformed alia is found. Will not import assignment \"" << buffer << "\" from " << where.string() << '\n';
@@ -110,12 +131,17 @@ void loadalias()
 
 					if (shellenv.aliastable.count(name) != 0) {
 						std::cerr << "A duplicate alias is found in this directory while it has been declared in this session, or in ~/.shushcfg/alias.shush\n";
-						std::cerr << "Do you want to overwrite it? [yes/NO] \n";
+						std::cerr << "Do you want to overwrite it? [y/N] \n";
 
 						std::string answer;
 						std::cin >> answer;
-						if (answer.find("y") != std::string::npos || answer.find("Y") != std::string::npos)
+						if (answer.find("y") != std::string::npos || answer.find("Y") != std::string::npos) {
 							shellenv.aliastable[name] = val;
+							std::cout << "Overwrite successful\n";
+						}
+						else
+							std::cout << "Overwrite aborted\n";
+							
 					}
 					else shellenv.aliastable[name] = val;
 				}
@@ -155,7 +181,7 @@ void fetchenv()
 	const char* homeptr = std::getenv("HOME");
 	const char* userptr = std::getenv("USER");
 	shellenv.user = (userptr!=nullptr) ? userptr : "unknown";
-	shellenv.home = (homeptr!=nullptr) ? homeptr : "/";
+	shellenv.home = (homeptr!=nullptr) ? homeptr : "/tmp";
 
 	char hostnamebuffer[256];
 	shellenv.hostname = (gethostname(hostnamebuffer, 256)==0) ? hostnamebuffer : "undefined";
@@ -481,6 +507,11 @@ void fillfd(cmdinfo& __current, const std::string& tofile) { // manipulate fd in
 		filedesc.stderrf = tofile;
 		filedesc.append_stderr = true;
 	}
+	if (filedesc.opexpr=="&>") {
+		filedesc.append_stderr = true;
+		filedesc.stderrf = tofile;
+		filedesc.stdoutf = tofile;
+	}
 	if (filedesc.opexpr==">" || filedesc.opexpr=="1>")
 		filedesc.stdoutf = tofile;
 	if (filedesc.opexpr=="2>")
@@ -584,6 +615,13 @@ bool syntax_helper(std::string readline)
 	return true;
 }
 
+void expandtilde(std::string& path)
+{
+	if (path[0]=='~') // converts tilde to /home/${USER}
+		if (path.size() < 2 || path[1]=='/')
+			path = shellenv.home + path.substr(1);
+}
+
 std::vector<cmdinfo> parse(std::string readline)
 {
 	if (!syntax_helper(readline))
@@ -640,6 +678,7 @@ std::vector<cmdinfo> parse(std::string readline)
 			else if (fetch=='\'') quotestate=2;
 			else if (fetch==' ') {
 				if (!qtbuff.empty()) {
+					expandtilde(qtbuff);						
 					__current.tokens.push_back(qtbuff);
 					qtbuff.clear();
 				}
@@ -677,6 +716,8 @@ std::vector<cmdinfo> parse(std::string readline)
 						tofile += readline[where];
 						where++; // e.g. grep >hello | echo
 					}
+
+					expandtilde(tofile);
 
 					i = where - 1; // update iterator to nearest space
 					
@@ -745,9 +786,10 @@ std::vector<cmdinfo> parse(std::string readline)
 			return {};
 		}
 	}
-	
-	if (!qtbuff.empty())
+	if (!qtbuff.empty()) {
+		expandtilde(qtbuff);
 		__current.tokens.push_back(qtbuff);
+	}
 	if (!__current.tokens.empty())
 		pipeline.push_back(__current);
 	
@@ -1000,7 +1042,7 @@ void defineshell(inputmgmt& shellmain)
 	int history_size = 39;
 
 	// customize
-	/* read customization*/
+	/* read customization*/ // will be used
 
 	// set
 	shellmain.set_max_history_size(history_size);
@@ -1059,11 +1101,6 @@ int main()
 					
 				if (!is_shellcmd) goto skip_to_forking;
 			}
-			
-			int shellcmd_result = shellcmd(pipeline[0].tokens);
-
-			if (shellcmd_result == -1) // if not, skip
-				goto skip_to_forking;
 
 			// preserve before its definition change
 			int procstdin = dup(STDIN_FILENO);
@@ -1116,9 +1153,17 @@ int main()
 					redirection_failed = true;
 				}
 
-				dup2(errfd, STDERR_FILENO);
+				// avoid file lock for &>
+				if (!filedesc.stdoutf.empty())
+					dup2(STDOUT_FILENO, STDERR_FILENO);
+				else
+					dup2(errfd, STDERR_FILENO);
+					
 				close(errfd);
 			}
+
+			// guaranteed NOT to be -1
+			int shellcmd_result = shellcmd(pipeline[0].tokens);
 
 			if (redirection_failed)
 				exitcause.push_back(1);
@@ -1226,7 +1271,12 @@ skip_to_forking:
 						_exit(1);
 					}
 
-					dup2(errfd, STDERR_FILENO);
+					// avoid file lock for &>
+					if (!filedesc.stdoutf.empty())
+						dup2(STDOUT_FILENO, STDERR_FILENO);
+					else
+						dup2(errfd, STDERR_FILENO);
+						
 					close(errfd);
 				}
 
