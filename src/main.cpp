@@ -42,7 +42,7 @@ using gethint = replxx::Replxx::hint_callback_t;
 using getcompletion = replxx::Replxx::completion_callback_t;
 using gethighlight = replxx::Replxx::highlighter_callback_t;
 
-std::string shellutils[] = {"exit", "quit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear"};
+std::string shellutils[] = {"echo", "exit", "quit", "cd", "help", "pwd", "exec", "type", "export", "unset", "set", "clear", "logout"};
 std::string fdesc[] = {"&>>", "2>>", "1>>", ">>", "&>", "2>", "1>", ">", "<", "|"};
 std::unordered_map<std::string, color> predef_colors = {
 	{"black", color::BLACK},
@@ -66,7 +66,7 @@ std::unordered_map<std::string, color> predef_colors = {
 
 auto compiledate = __DATE__;
 auto compiletime = __TIME__;
-auto snapshot = "6.14";
+auto snapshot = "6.15";
 
 struct {
 	std::string home, user, hostname;
@@ -88,63 +88,66 @@ struct cmdinfo {
 
 void loadalias()
 {
-	std::filesystem::path where = std::filesystem::path(shellenv.home) / ".shushcfg" / "alias.shush";
-	std::ifstream file(where.string());
-	if (file.is_open()) {
-		std::string buffer;
-		while (getline(file, buffer)) {
-			size_t delimiter = buffer.find("=");
-			if (delimiter==std::string::npos)
-				std::cerr << "Malformed alias found. Will not include it.\n";
-			else {
-				std::string name = buffer.substr(0, delimiter);
-				std::string val = buffer.substr(delimiter+1);
-				shellenv.aliastable[name] = val;
-			}
-		}
-		file.close();
-	} else {
-		where = std::filesystem::current_path();
+	std::vector<std::filesystem::path> checklist = {
+		std::filesystem::path(shellenv.home) / ".shushcfg" / "alias.shush",
+		std::filesystem::current_path() / ".shushcfg" / "alias.shush"
+	};
+
+	bool table_found = false;
+	for (std::filesystem::path where : checklist) {
 		std::ifstream file(where.string());
 		if (file.is_open()) {
+			table_found = true;
+		
 			std::string buffer;
 			while (getline(file, buffer)) {
 				size_t delimiter = buffer.find("=");
-				if (delimiter==std::string::npos)
-					std::cerr << "Malformed alias found. Will not include it.\n";
+				if (delimiter==std::string::npos || delimiter==0)
+					std::cerr << "A malformed alia is found. Will not import assignment \"" << buffer << "\" from " << where.string() << '\n';
 				else {
 					std::string name = buffer.substr(0, delimiter);
 					std::string val = buffer.substr(delimiter+1);
-					shellenv.aliastable[name] = val;
+
+					if (shellenv.aliastable.count(name) != 0) {
+						std::cerr << "A duplicate alias is found in this directory while it has been declared in this session, or in ~/.shushcfg/alias.shush\n";
+						std::cerr << "Do you want to overwrite it? [yes/NO] \n";
+
+						std::string answer;
+						std::cin >> answer;
+						if (answer.find("y") != std::string::npos || answer.find("Y") != std::string::npos)
+							shellenv.aliastable[name] = val;
+					}
+					else shellenv.aliastable[name] = val;
 				}
 			}
 			file.close();
-		} else
-			std::cerr << "Alias table file not found. All alias were not loaded.\n";
-	}
-}
-
-bool writealias() // currently unused
-{
-	std::filesystem::path where = std::filesystem::path(shellenv.home) / ".shushcfg" / "alias.shush";
-	std::ofstream file(where.string());
-	if (file.is_open()) {
-		for (std::pair<std::string, std::string> getalias : shellenv.aliastable)
-			file << getalias.first << "=" << getalias.second << "\n";
-		file.close(); return true;
-	} else {
-		where = std::filesystem::current_path() / ".shushcfg" / "alias.shush";
-		std::ofstream file(where.string());
-		if (file.is_open()) {
-			for (std::pair<std::string, std::string> getalias : shellenv.aliastable)
-				file << getalias.first << "=" << getalias.second << "\n";
-			file.close(); return true;
-		} else {
-			std::cerr << "Alias table file not found.\n";
-			return false;
 		}
 	}
-	return false;
+
+	if (!table_found)
+		std::cerr << "Alias table file not found. All alias were not loaded.\n";
+}
+
+void writealias()
+{
+	std::vector<std::filesystem::path> checklist = {
+		std::filesystem::path(shellenv.home) / ".shushcfg" / "alias.shush",
+		std::filesystem::current_path() / ".shushcfg" / "alias.shush"
+	};
+
+	bool table_found = false;
+	for (std::filesystem::path where : checklist) {
+		std::ofstream file(where.string(), std::ios::trunc);
+		if (file.is_open()) {
+			for (std::pair<std::string, std::string> getalias : shellenv.aliastable)
+				file << getalias.first << "=" << getalias.second << '\n';
+			file.close();
+			table_found = true;
+		}
+	}
+
+	if (!table_found)
+		std::cerr << "Alias table file not found. All alias were not written.\n";
 }
 
 void fetchenv()
@@ -186,18 +189,22 @@ std::string foundexe(std::string file)
 	return "I found something";
 }
 
+std::pair<std::string, bool> rtvarexp(std::string name) // runtime variable expand
+{
+	const char* fetch = std::getenv(name.c_str());
+
+	if (fetch!=nullptr)
+		return {(std::string)fetch, false};
+	else
+		return {"", true}; // evaluates to true if variable not found
+}
+
 int shellcmd(const std::vector<std::string>& tokens)
 {
 	if (tokens[0]=="unalias") {
-		if (tokens.size()>2) std::cerr << "Why 2 or more parameters?\n";
-		if (tokens.size()<2) {
-			std::cerr << "Not enough parameters, why?";
-			return 1;
-		}
-		
-		if (!shellenv.aliastable.erase(tokens[1]))
-			std::cerr << "Reminder that your specified alias isn't found.\n";
-			
+		for (size_t i = 1; i < tokens.size(); i++)
+			if (!shellenv.aliastable.erase(tokens[1]))
+				std::cerr << "Tried to erase but alias not found, skipped.\n";
 		return 0;
 	}
 
@@ -324,11 +331,36 @@ int shellcmd(const std::vector<std::string>& tokens)
 			} else return 0;
 		}
 
+	if (tokens[0]=="which") {
+		if (tokens.size() < 2) {
+			std::cout << "Specify your keyword.\n";
+			return 9;
+		}
+
+		if (tokens.size() > 2)
+			std::cout << "Ignoring additional specifications.\n";
+		
+		std::string found = foundexe(tokens[1]);
+
+		if (found != "I found something")
+			std::cout << tokens[1] << " found in " << found << '\n';
+		else {
+			std::pair<std::string, bool> fetch = rtvarexp("PATH");
+
+			if (!fetch.second)
+				std::cout << "No " << tokens[1] << " in " << "PATH (" << rtvarexp("PATH").first << ")\n";
+			else
+				std::cout << "$PATH not found\n";
+		}
+
+		return 0;
+	}
+
 	if (tokens[0]=="alias") {
 		if (tokens.size()>2) std::cerr << "Ignoring unnecessary specifications\n";
 		if (tokens.size()<2) {
-			std::cerr << "Not enough arguments.\n";
-			return 9;
+			for (std::pair<std::string, std::string> select : shellenv.aliastable)
+				std::cout << select.first << "=" << select.second << '\n';
 		}
 		
 		size_t delimiter = tokens[1].find("=");
@@ -373,10 +405,7 @@ int shellcmd(const std::vector<std::string>& tokens)
 			std::string fetch = tokens[i];
 
 			if (retreat_escapes) {
-				size_t pos = 0;
-				while ((pos=fetch.find("\\")) != std::string::npos) {
-					if (pos >= fetch.size() - 1) break;
-					
+				for (size_t pos = 0; pos <= fetch.size() - 2; pos++) {				
 					std::string getesc = fetch.substr(pos, 2);
 
 					if (getesc == "\\\\") fetch.replace(pos, 2, "\\");
@@ -428,7 +457,7 @@ int shellcmd(const std::vector<std::string>& tokens)
 
 	if (tokens[0]=="exit" || tokens[0]=="quit" || tokens[0]=="logout") {
 		if (tokens[0]=="logout") std::cout << "logout\n";
-		exit(0);
+		exit(0); // literally don't care
 	}
 
 	if (tokens[0]=="version" || tokens[0]=="snapshot") {
@@ -440,16 +469,6 @@ int shellcmd(const std::vector<std::string>& tokens)
 	}
 
 	return -1;
-}
-
-std::pair<std::string, bool> rtvarexp(std::string name) // runtime variable expand
-{
-	const char* fetch = std::getenv(name.c_str());
-
-	if (fetch!=nullptr)
-		return {(std::string)fetch, false};
-	else
-		return {"", true}; // evaluates to true if variable not found
 }
 
 void fillfd(cmdinfo& __current, const std::string& tofile) { // manipulate fd info if needed
@@ -485,10 +504,12 @@ bool syntax_helper(std::string readline)
 		if ((quotestate == 0 || quotestate == 1) && fetch=='$') {
 			size_t where = i+1;
 			bool curlybraces = false;
-			if (readline[where]=='{') {
-				curlybraces = true;
-				where++;
-			}
+
+			if (where < readline.size())
+				if (readline[where]=='{') {
+					curlybraces = true;
+					where++;
+				}
 			
 			std::string getvariablename("");
 			while (readline[where]=='_' ||
@@ -675,10 +696,12 @@ std::vector<cmdinfo> parse(std::string readline)
 			else if (fetch=='$') {
 				size_t where = i+1;
 				bool curlybraces = false;
-				if (readline[where]=='{') {
-					curlybraces = true;
-					where++;
-				}
+
+				if (where < readline.size())
+					if (readline[where]=='{') {
+						curlybraces = true;
+						where++;
+					}
 				
 				std::string getvariablename("");
 				while (readline[where]=='_' ||
@@ -731,15 +754,11 @@ std::vector<cmdinfo> parse(std::string readline)
 	return pipeline;
 }
 
-std::string expandDir(std::string dir)
-{
-	if (dir[0]=='~') return shellenv.home + dir.substr();
-	return dir;
-}
-
 bool isScript(std::string readline)
 {
-	std::string filepath = expandDir(readline);
+	std::string filepath = readline;
+
+	if (filepath[0]=='~') filepath = shellenv.home + filepath;
 
 	// doesn't exist or is a path
 	if (!std::filesystem::exists(filepath) || std::filesystem::is_directory(filepath))
@@ -764,41 +783,20 @@ bool isScript(std::string readline)
 	return false;
 }
 
-void prepcfg() // under construction
+void prepcfg()
 {
-	std::filesystem::path cfgpath = std::filesystem::current_path() / ".shushcfg";
-	std::filesystem::path txtcfg = std::filesystem::current_path(); // dummy
-	std::filesystem::path aliascfg = std::filesystem::current_path(); // dummy
-	
- // 	if (!std::filesystem::exists(cfgpath) || !std::filesystem::is_directory(cfgpath))
- // 		std::filesystem::create_directory(cfgpath);
- // 
- // 	txtcfg = cfgpath / "config.shush";
- // 	if (!std::filesystem::exists(txtcfg) || std::filesystem::is_directory(txtcfg)) {
- // 		std::ofstream file(txtcfg);
- // 		file.close();
- // 	}
- // 
-	// aliascfg = cfgpath / "alias.shush";
- // 	if (!std::filesystem::exists(aliascfg) || std::filesystem::is_directory(aliascfg)) {
- // 		std::ofstream file(aliascfg);
- // 		file.close();
- // 	}
-
-	// maybe...
-
-	cfgpath = static_cast<std::filesystem::path>(shellenv.home) / ".shushcfg";
+	std::filesystem::path cfgpath = static_cast<std::filesystem::path>(shellenv.home) / ".shushcfg";
 
 	if (!std::filesystem::exists(cfgpath) || !std::filesystem::is_directory(cfgpath))
 		std::filesystem::create_directory(cfgpath);
 
-	txtcfg = cfgpath / "config.shush";
+	std::filesystem::path txtcfg = cfgpath / "config.shush";
 	if (!std::filesystem::exists(txtcfg) || std::filesystem::is_directory(txtcfg)) {
 		std::ofstream file(txtcfg);
 		file.close();
 	}
 
-	aliascfg = cfgpath / "alias.shush";
+	std::filesystem::path aliascfg = cfgpath / "alias.shush";
 	if (!std::filesystem::exists(aliascfg) || std::filesystem::is_directory(aliascfg)) {
 		std::ofstream file(aliascfg);
 		file.close();
@@ -828,6 +826,9 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 				foundpromptcfg = true; break;
 			}
 	}
+
+	if (cwd.rfind(shellenv.home, 0) == 0)
+		cwd = '~' + cwd.substr(shellenv.home.size());
 	
 	std::string exampleprompt = shellenv.user + "@" + shellenv.hostname + " $ " + cwd;
 	if (exitcause.size()>1 ||
@@ -873,7 +874,7 @@ std::string readprompt(std::vector<int> exitcause) // this varies
 	}
 }
 
-color colordef(unsigned short rgb[3], bool bold, bool underline, std::string literal)
+color colordef(unsigned short get, bool bold, bool underline, std::string literal)
 {
 	if (!literal.empty()) {
 		auto where = predef_colors.find(literal);
@@ -881,9 +882,7 @@ color colordef(unsigned short rgb[3], bool bold, bool underline, std::string lit
 			return where->second;
 	}
 
-	rgb[1]+=1;
-	rgb[2]+=2;
-	rgb[0]+=3;
+	get += get;
 	bold = !bold;
 	underline = !underline;
 	
@@ -935,10 +934,12 @@ void syntax_highlighter(std::string const& input, inputmgmt::colors_t& colors)
 			bool encased = false; // is in {} or not
 			colors[i] = color::BRIGHTGREEN;
 
-			if (input[where] == '{') {
-				colors[where] = color::BRIGHTGREEN;
-				where++;
-			}
+			if (where < input.size())
+				if (input[where] == '{') {
+					colors[where] = color::BRIGHTGREEN;
+					encased = true;
+					where++;
+				}
 
 			std::string getvariable = "";
 			while (where < input.size() && (
@@ -950,10 +951,11 @@ void syntax_highlighter(std::string const& input, inputmgmt::colors_t& colors)
 					where++;
 				}
 
-			if (encased) {
-				colors[where] = color::BRIGHTGREEN;
-				where++;
-			}
+			if (encased)
+				if (where < input.size()) { // to prevent crashes with no variable name
+					colors[where] = color::BRIGHTGREEN;
+					where++;
+				}
 
 			i = where;
 			continue;
@@ -1277,6 +1279,7 @@ skip_to_forking:
 
 		pidlist.clear();
 	}
-	
+
+	writealias();
 	return 0;
 }

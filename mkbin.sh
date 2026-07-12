@@ -6,7 +6,7 @@ read -p "Are you sure you want to proceed? (y/N): " response
 
 if [[ "$response" =~ ^[yY](es)?$ ]]; then
     echo "Building binary with libreplxx.a, please wait..."
-  	g++ -std=c++17 src/main.cpp -Ilib/replxx/headers -Lbin/ -lreplxx -o shush
+  	g++ -g -o -std=c++17 src/main.cpp -Ilib/replxx/headers -Lbin/ -lreplxx -o shush
   	echo "Please see g++ messages if there are any."
 else
     echo "Requested cancellation, exiting"
